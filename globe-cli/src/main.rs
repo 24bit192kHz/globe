@@ -67,7 +67,7 @@ fn main() {
                 .help("Refresh rate in frames per second")
                 .takes_value(true)
                 .value_name("fps")
-                .default_value("60"),
+                .default_value("30"),
         )
         .arg(
             Arg::new("globe_rotation")
