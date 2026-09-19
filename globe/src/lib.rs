@@ -301,28 +301,63 @@ impl Globe {
                 normalize(&mut l);
                 let luminance: Float = clamp(5. * (dot(&n, &l)) + 0.5, 0., 1.);
 
-                // computing coordinates for the sphere
-                let phi: Float = -inter[2] / self.radius / 2. + 0.5;
-                let mut theta: Float =
-                    (inter[1] / inter[0]).atan() / PI + 0.5 + self.angle / 2. / PI;
+                // computing coordinates for the sphere.
+                // atan2 = true longitude (single wrap, no seam). old
+                // atan(y/x) mirrored a hemisphere and doubled the map,
+                // which blew up into radial streaks near the poles.
+                let phi = (-inter[2] / self.radius * 0.5 + 0.5).clamp(0.0, 1.0);
+                let mut theta =
+                    inter[1].atan2(inter[0]) / (2. * PI) + 0.5 + self.angle / 2. / PI;
                 theta -= theta.floor();
-                let (tex_x, tex_y) = self.texture.get_size();
-                let earth_x = (theta * tex_x as Float) as usize;
-                let earth_y = (phi * tex_y as Float) as usize;
+                // bilinear sample of palette indices: smooth coastlines
+                // when one cell covers many texels (tiny fonts). x wraps
+                // (longitude), y clamps (poles). pole rows are uniform
+                // ocean so polar longitude smear stays invisible.
+                let w = self.texture.day[0].len();
+                let h = self.texture.day.len();
+                let wf = w as Float;
+                let hf = h as Float;
+                let fx = theta * wf;
+                let fy = phi * hf;
+                let x0 = fx.floor() as Int;
+                let y0 = fy.floor() as Int;
+                let tx = fx - x0 as Float;
+                let ty = fy - y0 as Float;
+                let wrap = |x: Int| x.rem_euclid(w as Int) as usize;
+                let clampy = |y: Int| y.clamp(0, h as Int - 1) as usize;
+                let (x0u, x1u) = (wrap(x0), wrap(x0 + 1));
+                let (y0u, y1u) = (clampy(y0), clampy(y0 + 1));
+                let bilerp = |a: Float, b: Float, c: Float, d: Float| {
+                    a * (1. - tx) * (1. - ty)
+                        + b * tx * (1. - ty)
+                        + c * (1. - tx) * ty
+                        + d * tx * ty
+                };
 
                 let ch = if self.display_night
                     && self.texture.night.is_some()
                     && self.texture.palette.is_some()
                 {
                     let palette = self.texture.palette.as_ref().unwrap();
-                    let day = find_index(self.texture.day[earth_y][earth_x], palette);
-                    let night = find_index(
-                        self.texture.night.as_ref().unwrap()[earth_y][earth_x],
-                        palette,
+                    let night_tex = self.texture.night.as_ref().unwrap();
+                    let smp = |tex: &Vec<Vec<char>>, x: usize, y: usize| {
+                        find_index(tex[y][x], palette) as Float
+                    };
+                    let day = bilerp(
+                        smp(&self.texture.day, x0u, y0u),
+                        smp(&self.texture.day, x1u, y0u),
+                        smp(&self.texture.day, x0u, y1u),
+                        smp(&self.texture.day, x1u, y1u),
+                    );
+                    let night = bilerp(
+                        smp(night_tex, x0u, y0u),
+                        smp(night_tex, x1u, y0u),
+                        smp(night_tex, x0u, y1u),
+                        smp(night_tex, x1u, y1u),
                     );
 
                     let mut index =
-                        ((1.0 - luminance) * night as Float + luminance * day as Float) as usize;
+                        ((1.0 - luminance) * night + luminance * day).round() as usize;
                     if index >= palette.len() {
                         index = 0;
                     }
@@ -330,7 +365,15 @@ impl Globe {
                 }
                 // else just draw the day texture without considering luminance
                 else {
-                    self.texture.day[earth_y][earth_x]
+                    let mut ex = (theta * wf) as usize;
+                    if ex >= w {
+                        ex = w - 1;
+                    }
+                    let mut ey = (phi * hf) as usize;
+                    if ey >= h {
+                        ey = h - 1;
+                    }
+                    self.texture.day[ey][ex]
                 };
                 canvas.matrix[yi][xi] = ch;
             }
