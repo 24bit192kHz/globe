@@ -156,6 +156,52 @@ impl Globe {
                 let mut target = ' ';
                 // ray misses globe: sun disk > parallax stars > milkyway dust
                 if discriminant < 0. {
+                    // analytic edge fringe (sub-cell coverage): a near-miss
+                    // ray still names a limb point (closest approach pushed
+                    // onto the sphere). sample the surface there and thin
+                    // its palette index by coverage instead of hard-clipping
+                    // to sky: the silhouette thins down the ramp, 1-cell
+                    // analytic antialias, crisp at any font size.
+                    // closest^2 = r^2 - discriminant; t = -dot_uo > 0 faces globe.
+                    let t = -dot_uo;
+                    if t > 0. {
+                        let miss =
+                            (self.radius * self.radius - discriminant).sqrt() - self.radius;
+                        // world-space ray footprint at limb range: one cell
+                        // steps u by ~1/(2*half_h), times range t.
+                        let foot = t / (2 * half_h) as Float;
+                        if miss < foot {
+                            if let Some(palette) = self.texture.palette.as_ref() {
+                                let coverage = (1. - miss / foot).clamp(0., 1.);
+                                let mut p =
+                                    [ox + t * u[0], oy + t * u[1], oz + t * u[2]];
+                                normalize(&mut p);
+                                let phi = (-p[2] * 0.5 + 0.5).clamp(0.0, 1.0);
+                                let mut theta = p[1].atan2(p[0]) / (2. * PI)
+                                    + 0.5
+                                    + self.angle / 2. / PI;
+                                theta -= theta.floor();
+                                let w = self.texture.day[0].len();
+                                let h = self.texture.day.len();
+                                let mut ex = (theta * w as Float) as usize;
+                                if ex >= w {
+                                    ex = w - 1;
+                                }
+                                let mut ey = (phi * h as Float) as usize;
+                                if ey >= h {
+                                    ey = h - 1;
+                                }
+                                let idx =
+                                    find_index(self.texture.day[ey][ex], palette);
+                                if idx >= 0 {
+                                    let thin = ((idx as Float * coverage) as usize)
+                                        .min(palette.len() - 1);
+                                    canvas.matrix[yi][xi] = palette[thin];
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     // parallax in world space: ray dir projected on sky plane,
                     // scaled per depth layer, drifted by quantized camera.
                     // stars fixed in sky, near layers pan faster.
