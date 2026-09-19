@@ -11,6 +11,23 @@ use std::io::Read;
 pub type Int = isize;
 pub type Float = f32;
 
+/// Sky brightness ramp, dim -> bright. Crossfade walks this one step
+/// per frame toward target: ultra-smooth, never pops or flashes.
+const RAMP: [char; 7] = [' ', '.', '.', ':', ';', '+', '*'];
+
+/// Ramp index of a char. Unknown chars act as transparent (no fade).
+fn ramp_idx(c: char) -> Option<usize> {
+    match c {
+        ' ' => Some(0),
+        '.' => Some(1),
+        ':' => Some(3),
+        ';' => Some(4),
+        '+' => Some(5),
+        '*' => Some(6),
+        _ => None,
+    }
+}
+
 static EARTH_TEXTURE: &str = include_str!("../textures/earth.txt");
 static EARTH_NIGHT_TEXTURE: &str = include_str!("../textures/earth_night.txt");
 
@@ -63,8 +80,13 @@ impl Canvas {
         self.size
     }
     pub fn clear(&mut self) {
-        for i in self.matrix.iter_mut().flatten() {
-            *i = ' ';
+        // only displayed cells ever printed (32x cheaper than full matrix)
+        let dw = self.size.0 / self.char_pix.0;
+        let dh = self.size.1 / self.char_pix.1;
+        for row in self.matrix.iter_mut().take(dh) {
+            for c in row.iter_mut().take(dw) {
+                *c = ' ';
+            }
         }
     }
     fn draw_point(&mut self, a: usize, b: usize, c: char) {
@@ -82,55 +104,194 @@ pub struct Globe {
     pub angle: Float,
     pub texture: Texture,
     pub display_night: bool,
+    pub frame: u64,
 }
 
 impl Globe {
-    pub fn render_on(&self, canvas: &mut Canvas) {
+    pub fn render_on(&mut self, canvas: &mut Canvas) {
+        self.frame = self.frame.wrapping_add(1);
+        // sun sits ~41 deg off launch view axis: visible beside earth,
+        // outside globe disk. light matches sun dir so lit side coherent.
+        // unit length: |v| = 1.0
+        const SUN: [Float; 3] = [-0.7547, 0.5535, 0.3523];
         // let there be light
-        let light: [Float; 3] = [0., 999999., 0.];
-        // shoot the ray through every pixel
+        let light: [Float; 3] = [SUN[0] * 999999., SUN[1] * 999999., SUN[2] * 999999.];
+        const BAND: [Float; 3] = [0.399, 0.349, 0.848];
+        // shoot one ray per *displayed* cell (char resolution:
+        // 32x fewer rays than pixel resolution, identical visible output)
         let (size_x, size_y) = canvas.get_size();
-        for yi in 0..size_y {
+        let dw = size_x / canvas.char_pix.0;
+        let dh = size_y / canvas.char_pix.1;
+        let half_w = dw as Int / 2;
+        let half_h = dh as Int / 2;
+        let (ox, oy, oz) = (self.camera.x, self.camera.y, self.camera.z);
+        let m = self.camera.matrix;
+        // quantize camera shift to 1/8-cell bins: background stable
+        // for many frames, then pans. crossfade below smooths the step.
+        // stars damped 10x vs earth: tiny fraction of camera travel.
+        let qx = (ox * (26. + 22. * 1.5) * 8. / 10.) as Int;
+        let qz = (oz * (26. + 22. * 1.5) * 8. / 10.) as Int;
+        for yi in 0..dh {
             let yif = yi as Int;
-            for xi in 0..size_x {
+            for xi in 0..dw {
                 let xif = xi as Int;
                 // coordinates of the camera, origin of the ray
-                let o: [Float; 3] = [self.camera.x, self.camera.y, self.camera.z];
-                // u is unit vector, direction of the ray
+                let o: [Float; 3] = [ox, oy, oz];
+                // x normalized by 2*half_h (not half_w): terminal cells
+                // are ~2:1 tall, this keeps the globe circular fullscreen
                 let mut u: [Float; 3] = [
-                    -((xif - (size_x / canvas.char_pix.0 / 2) as Int) as Float + 0.5)
-                        / (size_x / canvas.char_pix.0 / 2) as Float,
-                    ((yif - (size_y / canvas.char_pix.1 / 2) as Int) as Float + 0.5)
-                        / (size_y / canvas.char_pix.1 / 2) as Float,
+                    -((xif - half_w) as Float + 0.5) / (2 * half_h) as Float,
+                    ((yif - half_h) as Float + 0.5) / half_h as Float,
                     -1.,
                 ];
-                transform_vector(&mut u, self.camera.matrix);
-                u[0] -= self.camera.x;
-                u[1] -= self.camera.y;
-                u[2] -= self.camera.z;
+                transform_vector(&mut u, m);
+                u[0] -= ox;
+                u[1] -= oy;
+                u[2] -= oz;
                 normalize(&mut u);
                 let dot_uo = dot(&u, &o);
                 let discriminant: Float = dot_uo * dot_uo - dot(&o, &o) + self.radius * self.radius;
 
-                // ray doesn't hit the sphere
+                // target char for this cell; crossfade walks current -> target
+                let mut target = ' ';
+                // ray misses globe: sun disk > parallax stars > milkyway dust
                 if discriminant < 0. {
+                    // parallax in world space: ray dir projected on sky plane,
+                    // scaled per depth layer, drifted by quantized camera.
+                    // stars fixed in sky, near layers pan faster.
+                    let ix = u[0] - SUN[0] * dot(&u, &SUN);
+                    let iz = u[2] - SUN[2] * dot(&u, &SUN);
+                    let mut h: u32 = ((u[1] * 997. + 0.5) as i32 as u32)
+                        .wrapping_mul(2246822519)
+                        .wrapping_add(
+                            ((u[0] * 571. + u[2] * 911. + 0.5) as i32 as u32)
+                                .wrapping_mul(3266489917),
+                        );
+                    h = (h ^ (h >> 15)).wrapping_mul(2654435761);
+                    h ^= h >> 13;
+                    let depth = (h >> 27) & 3;
+                    let scl = 260. * (1 << depth) as Float;
+                    // camera-relative shift: rotate offset by 90 deg from sun
+                    // axis so orbit movement pans across sky, not into pole
+                    let sx = (ix * scl) as Int + qx * (1 + depth as Int) / 4;
+                    let sz = (iz * scl) as Int + qz * (1 + depth as Int) / 4;
+                    let mut sh: u32 = (sx as u32)
+                        .wrapping_mul(374761393)
+                        .wrapping_add((sz as u32).wrapping_mul(668265263))
+                        .wrapping_add(depth.wrapping_mul(2246822519));
+                    sh = (sh ^ (sh >> 13)).wrapping_mul(1274126177);
+                    sh ^= sh >> 16;
+                    // fixed world-space band, camera-independent
+                    let bs = u[0] * BAND[0] + u[1] * BAND[1] + u[2] * BAND[2];
+                    let band_d = bs.abs();
+                    let in_band = band_d < 0.16;
+                    let core = band_d < 0.06;
+                    // static sky: zero twinkle = zero flash, near-zero redraw.
+                    // stars hash from world-space ray + quantized camera;
+                    // camera drift pans them, nothing pops frame to frame.
+                    // crossfade: quantized camera bins blend old char -> new
+                    // char one ramp step per frame = ultra-smooth, no flash.
+                    let core_w = 0.06; // bright core half-width (~7deg full)
+                    let out_w = 0.16; // faint band edge (~18deg full)
+                    let dust_w = 0.016; // great rift half-width
+                    let g = (-(band_d * band_d) / (2. * core_w * core_w)).exp();
+                    let avg = (-(band_d * band_d) / (2. * out_w * out_w)).exp();
+                    // great rift: dark lane through core, keep some stars
+                    if in_band && core && band_d < dust_w {
+                        let r = sh % 1000;
+                        if r % 10 < 7 {
+                            // dust blocks glow, sparse faint stars only
+                            if r < 90 {
+                                target = '.';
+                            }
+                        }
+                    } else {
+                        // sun: ray-facing test around fixed world direction
+                        let facing = u[0] * SUN[0] + u[1] * SUN[1] + u[2] * SUN[2];
+                        if facing > 0.99955 {
+                            target = '*';
+                        } else if facing > 0.99860 {
+                            let d = (facing - 0.99860) / 0.00095;
+                            target = RAMP[(d * 6.) as usize];
+                        } else if facing > 0.99630 {
+                            target = '.';
+                        } else if in_band {
+                            let r = sh % 1000;
+                            // crossfade envelope: deep core 1.0 -> edge ~0.0.
+                            // hash picks static tier 0..6, envelope scales it.
+                            // faint stays faint even in core: no solid wall.
+                            let env = g * 0.8 + avg * 0.2;
+                            let pick = (sh >> 9) % 7;
+                            let mut idx = (pick as Float * env) as usize;
+                            if idx > 6 {
+                                idx = 6;
+                            }
+                            if core && idx == 5 && (sh % 13) == 0 {
+                                idx = 6; // rare static core star
+                            }
+                            let fill = if core { 720 } else { 200 };
+                            if r < fill {
+                                target = RAMP[idx];
+                            }
+                        } else if sh % 1000 < 30 + depth * 8 {
+                            // sparse field ~3-5%: dots dominate, star rare
+                            target = match (sh >> 24) % 13 {
+                                0..=7 => '.',
+                                8 | 9 => ':',
+                                10 => ';',
+                                11 => '+',
+                                _ => {
+                                    if depth < 2 {
+                                        '*'
+                                    } else {
+                                        ':'
+                                    }
+                                }
+                            };
+                        }
+                    }
+                    // crossfade: walk current cell one ramp step toward
+                    // target per frame. chars appear/disappear as
+                    // ' ' -> '.' -> ':' -> ';' -> '+' -> '*' = diffuse,
+                    // ultra-smooth, zero flash. globe chars pass through.
+                    let cur = canvas.matrix[yi][xi];
+                    if cur == target {
+                        continue;
+                    }
+                    match (ramp_idx(cur), ramp_idx(target)) {
+                        (Some(a), Some(b)) => {
+                            canvas.matrix[yi][xi] = RAMP[a + (b > a) as usize
+                                - (b < a) as usize];
+                        }
+                        _ => {
+                            // entering sky from globe char: start diffuse
+                            canvas.matrix[yi][xi] = if target == ' ' {
+                                ' '
+                            } else if target == '*' {
+                                '+'
+                            } else {
+                                '.'
+                            };
+                        }
+                    }
                     continue;
                 }
 
+                // globe surface: single center sample, direct write.
                 let distance: Float = -discriminant.sqrt() - dot_uo;
 
                 // intersection point
                 let inter: [Float; 3] = [
-                    o[0] + distance * u[0],
-                    o[1] + distance * u[1],
-                    o[2] + distance * u[2],
+                    ox + distance * u[0],
+                    oy + distance * u[1],
+                    oz + distance * u[2],
                 ];
 
                 // surface normal
                 let mut n: [Float; 3] = [
-                    o[0] + distance * u[0],
-                    o[1] + distance * u[1],
-                    o[2] + distance * u[2],
+                    ox + distance * u[0],
+                    oy + distance * u[1],
+                    oz + distance * u[2],
                 ];
                 normalize(&mut n);
 
@@ -139,20 +300,17 @@ impl Globe {
                 vector(&mut l, &inter, &light);
                 normalize(&mut l);
                 let luminance: Float = clamp(5. * (dot(&n, &l)) + 0.5, 0., 1.);
-                let mut temp: [Float; 3] = [inter[0], inter[1], inter[2]];
-                rotate_x(&mut temp, -PI * 2. * 0. / 360.);
 
                 // computing coordinates for the sphere
-                let phi: Float = -temp[2] / self.radius / 2. + 0.5;
-                let mut theta: Float = (temp[1] / temp[0]).atan() / PI + 0.5 + self.angle / 2. / PI;
-                // let mut theta: Float = (temp[1] / temp[0]).atan() / PI + self.angle / 2. / PI * 20.;
+                let phi: Float = -inter[2] / self.radius / 2. + 0.5;
+                let mut theta: Float =
+                    (inter[1] / inter[0]).atan() / PI + 0.5 + self.angle / 2. / PI;
                 theta -= theta.floor();
                 let (tex_x, tex_y) = self.texture.get_size();
                 let earth_x = (theta * tex_x as Float) as usize;
                 let earth_y = (phi * tex_y as Float) as usize;
 
-                // if night texture and palette are available, draw the night side
-                if self.display_night
+                let ch = if self.display_night
                     && self.texture.night.is_some()
                     && self.texture.palette.is_some()
                 {
@@ -168,12 +326,13 @@ impl Globe {
                     if index >= palette.len() {
                         index = 0;
                     }
-                    canvas.draw_point(xi, yi, palette[index]);
+                    palette[index]
                 }
                 // else just draw the day texture without considering luminance
                 else {
-                    canvas.draw_point(xi, yi, self.texture.day[earth_y][earth_x]);
-                }
+                    self.texture.day[earth_y][earth_x]
+                };
+                canvas.matrix[yi][xi] = ch;
             }
         }
     }
@@ -288,6 +447,7 @@ impl GlobeConfig {
             angle: self.angle.unwrap_or(0.),
             texture,
             display_night: self.display_night,
+            frame: 0,
         }
     }
 }
