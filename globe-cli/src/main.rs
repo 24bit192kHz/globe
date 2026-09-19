@@ -10,7 +10,7 @@ use clap::{App, AppSettings, Arg};
 use crossterm::{
     cursor,
     event::{poll, read, Event, KeyCode},
-    style::Print,
+    style::{Color, Print, SetForegroundColor},
     ExecutableCommand, QueueableCommand,
 };
 use crossterm::{event::MouseEvent, terminal};
@@ -351,9 +351,11 @@ fn start_screensaver(settings: Settings) {
 
     let mut term_size = terminal::size().unwrap();
     let mut canvas = fullscreen_canvas(term_size);
-    // diff buffer: previous frame, sized in char cells
+    // diff buffers: previous frame chars + colors, sized in char cells
     let mut prev: Vec<Vec<char>> =
         vec![vec![' '; term_size.0 as usize]; term_size.1 as usize];
+    let mut prev_col: Vec<Vec<u8>> =
+        vec![vec![255u8; term_size.0 as usize]; term_size.1 as usize];
 
     let cam_zoom = settings.cam_zoom;
     let mut cam_xy = 0.;
@@ -405,6 +407,7 @@ fn start_screensaver(settings: Settings) {
                     term_size = (width, height);
                     canvas = fullscreen_canvas(term_size);
                     prev = vec![vec![' '; width as usize]; height as usize];
+                    prev_col = vec![vec![255u8; width as usize]; height as usize];
                     stdout.execute(terminal::Clear(ClearType::All)).unwrap();
                 }
                 Event::Mouse(_) => (),
@@ -440,7 +443,7 @@ fn start_screensaver(settings: Settings) {
         globe.render_on(&mut canvas);
 
         // diffed print: only changed cells, one flush per frame
-        print_canvas_diff(&mut canvas, &mut prev, &term_size, &mut stdout);
+        print_canvas_diff(&mut canvas, &mut prev, &mut prev_col, &term_size, &mut stdout);
     }
 
     stdout.execute(cursor::Show).unwrap();
@@ -618,10 +621,12 @@ fn fullscreen_canvas(term_size: (u16, u16)) -> Canvas {
 
 /// Diffed fullscreen print: overwrite only changed cells, single flush,
 /// wrapped in synchronized output so Kitty presents atomically, no tear.
-/// Skips flush entirely when nothing changed (idle frames free).
+/// Tracks fg color per cell: emits SetForegroundColor only on change,
+/// groups runs. Skips flush entirely when nothing changed.
 fn print_canvas_diff(
     canvas: &mut Canvas,
     prev: &mut Vec<Vec<char>>,
+    prev_col: &mut Vec<Vec<u8>>,
     term_size: &(u16, u16),
     stdout: &mut Stdout,
 ) {
@@ -631,22 +636,43 @@ fn print_canvas_diff(
     stdout.queue(Print("\x1b[?2026h")).unwrap();
     let mut last_x: i32 = -2;
     let mut last_y: i32 = -2;
+    let mut cur_fg: u8 = 255; // impossible sentinel forces first set
     let mut changed = 0;
     for y in 0..h {
         for x in 0..w {
             let c = canvas.matrix[y][x];
-            if prev[y][x] != c {
-                if y as i32 != last_y || x as i32 != last_x + 1 {
-                    stdout.queue(cursor::MoveTo(x as u16, y as u16)).unwrap();
+            let k = canvas.colors[y][x];
+            let same_char = prev[y][x] == c;
+            let same_col = prev_col[y][x] == k || c == ' ';
+            if same_char && same_col {
+                continue;
+            }
+            if y as i32 != last_y || x as i32 != last_x + 1 {
+                stdout.queue(cursor::MoveTo(x as u16, y as u16)).unwrap();
+            }
+            if c == ' ' {
+                // blank: single space, reset only if color was set
+                if cur_fg != 0 {
+                    stdout.queue(SetForegroundColor(Color::AnsiValue(0))).unwrap();
+                    cur_fg = 0;
+                }
+                stdout.queue(Print(' ')).unwrap();
+            } else {
+                if k != cur_fg {
+                    stdout.queue(SetForegroundColor(Color::AnsiValue(k))).unwrap();
+                    cur_fg = k;
                 }
                 stdout.queue(Print(c)).unwrap();
-                prev[y][x] = c;
-                last_x = x as i32;
-                last_y = y as i32;
-                changed += 1;
             }
+            prev[y][x] = c;
+            prev_col[y][x] = k;
+            last_x = x as i32;
+            last_y = y as i32;
+            changed += 1;
         }
     }
+    // reset attrs so shell prompt after exit stays clean
+    stdout.queue(SetForegroundColor(Color::Reset)).unwrap();
     stdout.queue(Print("\x1b[?2026l")).unwrap();
     if changed > 0 {
         stdout.flush().unwrap();

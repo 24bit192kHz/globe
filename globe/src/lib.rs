@@ -56,8 +56,11 @@ impl Texture {
 }
 
 /// Canvas that will be used to render the globe onto.
+/// Each cell carries a char + 256-color fg index. 255 steps of shade
+/// with zero extra glyphs: same ASCII, full terminal palette.
 pub struct Canvas {
     pub matrix: Vec<Vec<char>>,
+    pub colors: Vec<Vec<u8>>,
     size: (usize, usize),
     // character size
     pub char_pix: (usize, usize),
@@ -69,10 +72,12 @@ impl Canvas {
         let y = y as usize;
 
         let matrix = vec![vec![' '; x]; y];
+        let colors = vec![vec![7u8; x]; y];
 
         Self {
             size: (x, y),
             matrix,
+            colors,
             char_pix: cp.unwrap_or((4, 8)),
         }
     }
@@ -83,9 +88,10 @@ impl Canvas {
         // only displayed cells ever printed (32x cheaper than full matrix)
         let dw = self.size.0 / self.char_pix.0;
         let dh = self.size.1 / self.char_pix.1;
-        for row in self.matrix.iter_mut().take(dh) {
-            for c in row.iter_mut().take(dw) {
+        for (row, crow) in self.matrix.iter_mut().zip(self.colors.iter_mut()).take(dh) {
+            for (c, k) in row.iter_mut().zip(crow.iter_mut()).take(dw) {
                 *c = ' ';
+                *k = 0;
             }
         }
     }
@@ -152,8 +158,10 @@ impl Globe {
                 let dot_uo = dot(&u, &o);
                 let discriminant: Float = dot_uo * dot_uo - dot(&o, &o) + self.radius * self.radius;
 
-                // target char for this cell; crossfade walks current -> target
+                // target char + color for this cell; crossfade walks the
+                // char one ramp step per frame, color lerps alongside.
                 let mut target = ' ';
+                let mut tcol: u8 = 0;
                 // ray misses globe: sun disk > parallax stars > milkyway dust
                 if discriminant < 0. {
                     // parallax in world space: ray dir projected on sky plane,
@@ -203,23 +211,30 @@ impl Globe {
                             // dust blocks glow, sparse faint stars only
                             if r < 90 {
                                 target = '.';
+                                tcol = 238;
                             }
                         }
                     } else {
-                        // sun: ray-facing test around fixed world direction
+                        // sun: ray-facing test around fixed world direction.
+                        // warm white core -> amber halo (226, 220, 214, 208).
                         let facing = u[0] * SUN[0] + u[1] * SUN[1] + u[2] * SUN[2];
                         if facing > 0.99955 {
-                            target = '*';
+                            target = '@';
+                            tcol = 231;
                         } else if facing > 0.99860 {
                             let d = (facing - 0.99860) / 0.00095;
-                            target = RAMP[(d * 6.) as usize];
+                            let i = (d * 6.) as usize;
+                            target = RAMP[i.min(6)];
+                            tcol = [232, 238, 244, 250, 220, 226, 231][i.min(6)];
                         } else if facing > 0.99630 {
                             target = '.';
+                            tcol = 208;
                         } else if in_band {
                             let r = sh % 1000;
                             // crossfade envelope: deep core 1.0 -> edge ~0.0.
                             // hash picks static tier 0..6, envelope scales it.
                             // faint stays faint even in core: no solid wall.
+                            // warm core tint (vault white -> sand), cool edge.
                             let env = g * 0.8 + avg * 0.2;
                             let pick = (sh >> 9) % 7;
                             let mut idx = (pick as Float * env) as usize;
@@ -232,36 +247,54 @@ impl Globe {
                             let fill = if core { 720 } else { 200 };
                             if r < fill {
                                 target = RAMP[idx];
+                                tcol = if core {
+                                    [232, 238, 244, 250, 251, 223, 231][idx]
+                                } else {
+                                    [232, 238, 240, 244, 248, 250, 251][idx]
+                                };
                             }
                         } else if sh % 1000 < 30 + depth * 8 {
-                            // sparse field ~3-5%: dots dominate, star rare
-                            target = match (sh >> 24) % 13 {
-                                0..=7 => '.',
-                                8 | 9 => ':',
-                                10 => ';',
-                                11 => '+',
+                            // sparse field ~3-5%: dots dominate, star rare.
+                            // cool blue-white field stars, warm rare bright.
+                            let (c, k) = match (sh >> 24) % 13 {
+                                0..=7 => ('.', 238),
+                                8 | 9 => (':', 244),
+                                10 => (';', 248),
+                                11 => ('+', 250),
                                 _ => {
                                     if depth < 2 {
-                                        '*'
+                                        ('*', 223)
                                     } else {
-                                        ':'
+                                        (':', 240)
                                     }
                                 }
                             };
+                            target = c;
+                            tcol = k;
                         }
                     }
                     // crossfade: walk current cell one ramp step toward
                     // target per frame. chars appear/disappear as
                     // ' ' -> '.' -> ':' -> ';' -> '+' -> '*' = diffuse,
-                    // ultra-smooth, zero flash. globe chars pass through.
+                    // ultra-smooth, zero flash. color lerps 16/frame
+                    // toward target so shifts sweep, never pop.
+                    // globe chars pass through.
                     let cur = canvas.matrix[yi][xi];
-                    if cur == target {
+                    let cur_c = canvas.colors[yi][xi];
+                    if cur == target && (cur == ' ' || cur_c == tcol) {
                         continue;
                     }
                     match (ramp_idx(cur), ramp_idx(target)) {
                         (Some(a), Some(b)) => {
                             canvas.matrix[yi][xi] = RAMP[a + (b > a) as usize
                                 - (b < a) as usize];
+                            let cc = cur_c as Int;
+                            let tc = tcol as Int;
+                            let d = (tc - cc).abs();
+                            let step = if d < 4 { d } else { 16 };
+                            canvas.colors[yi][xi] =
+                                (cc + step * (tc > cc) as Int - step * (tc < cc) as Int)
+                                    as u8;
                         }
                         _ => {
                             // entering sky from globe char: start diffuse
@@ -272,6 +305,7 @@ impl Globe {
                             } else {
                                 '.'
                             };
+                            canvas.colors[yi][xi] = tcol;
                         }
                     }
                     continue;
@@ -325,7 +359,9 @@ impl Globe {
                 let earth_x = ex;
                 let earth_y = ey;
 
-                let ch = if self.display_night
+                let ch;
+                let ecol: u8;
+                if self.display_night
                     && self.texture.night.is_some()
                     && self.texture.palette.is_some()
                 {
@@ -341,13 +377,50 @@ impl Globe {
                     if index >= palette.len() {
                         index = 0;
                     }
-                    palette[index]
+                    ch = palette[index];
+                    // 256-color earth: ocean deep blue -> land green/tan ->
+                    // ice white, shaded by luminance. night side city warm.
+                    let land = day > 7;
+                    let city = !land && night > 2;
+                    ecol = if city && luminance < 0.35 {
+                        178 + (night as u8).min(5) // warm city lights
+                    } else if !land {
+                        // ocean blues 17 -> 21 -> 27 -> 39 by light
+                        [17, 17, 18, 19, 20, 21, 26, 27, 33, 39]
+                            [(luminance * 9.99) as usize]
+                    } else {
+                        // land greens/tans/white by palette height + light
+                        let base = [22, 28, 34, 58, 64, 100, 106, 142, 148, 178, 190, 220, 222, 228, 231, 231, 231, 231]
+                            [index.min(17)];
+                        if luminance < 0.25 {
+                            // night land: dark blue-green shadow
+                            [16, 17, 22, 23, 23, 58][index.min(5)]
+                        } else {
+                            base
+                        }
+                    };
                 }
                 // else just draw the day texture without considering luminance
                 else {
-                    self.texture.day[earth_y][earth_x]
+                    ch = self.texture.day[earth_y][earth_x];
+                    // full-day mode: palette height -> biome color
+                    ecol = match ch {
+                        ' ' | '.' => 21,
+                        ':' | ';' => 30,
+                        '\'' | ',' => 65,
+                        'w' => 28,
+                        'i' => 34,
+                        'o' => 100,
+                        'g' => 142,
+                        'O' => 178,
+                        'L' => 190,
+                        'X' => 220,
+                        'H' => 228,
+                        _ => 231,
+                    };
                 };
                 canvas.matrix[yi][xi] = ch;
+                canvas.colors[yi][xi] = ecol;
             }
         }
     }
