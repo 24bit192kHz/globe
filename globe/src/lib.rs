@@ -28,8 +28,8 @@ fn ramp_idx(c: char) -> Option<usize> {
     }
 }
 
-static EARTH_TEXTURE: &str = include_str!("../textures/earth.txt");
-static EARTH_NIGHT_TEXTURE: &str = include_str!("../textures/earth_night.txt");
+static EARTH_TEXTURE: &str = include_str!("../textures/earth_hd.txt");
+static EARTH_NIGHT_TEXTURE: &str = include_str!("../textures/earth_night_hd.txt");
 
 /// Globe texture.
 pub struct Texture {
