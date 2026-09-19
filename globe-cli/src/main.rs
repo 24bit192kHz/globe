@@ -15,7 +15,7 @@ use crossterm::{
 };
 use crossterm::{event::MouseEvent, terminal};
 
-use crossterm::terminal::ClearType;
+use crossterm::terminal::{ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use globe::{CameraConfig, Canvas, GlobeConfig, GlobeTemplate};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -345,15 +345,15 @@ fn start_listing(settings: Settings, coords_input: Vec<&str>) {
 fn start_screensaver(settings: Settings) {
     terminal::enable_raw_mode().unwrap();
     let mut stdout = stdout();
+    stdout.execute(EnterAlternateScreen).unwrap();
     stdout.execute(cursor::Hide).unwrap();
     stdout.execute(cursor::DisableBlinking).unwrap();
 
     let mut term_size = terminal::size().unwrap();
-    let mut canvas = if term_size.0 > term_size.1 {
-        Canvas::new(term_size.1 * 8, term_size.1 * 8, None)
-    } else {
-        Canvas::new(term_size.0 * 4, term_size.0 * 4, None)
-    };
+    let mut canvas = fullscreen_canvas(term_size);
+    // diff buffer: previous frame, sized in char cells
+    let mut prev: Vec<Vec<char>> =
+        vec![vec![' '; term_size.0 as usize]; term_size.1 as usize];
 
     let cam_zoom = settings.cam_zoom;
     let mut cam_xy = 0.;
@@ -368,32 +368,70 @@ fn start_screensaver(settings: Settings) {
         .display_night(settings.night)
         .build();
 
+    // equatorial orbit at ISS rate: camera circles equator,
+    // one revolution per T = 92.9 min = 5574 s (ISS period, no inclination).
+    // globe texture spins at true earth rate only (23.3 deg per orbit).
+    const ISS_PERIOD_S: f32 = 5574.0;
+    const EARTH_RATE: f32 = 2.0 * PI / 86164.0; // sidereal day rad/s
+    let frame_dt = 1.0 / settings.refresh_rate as f32;
+    let d_phase = 2.0 * PI / ISS_PERIOD_S * frame_dt;
+    let d_earth = EARTH_RATE * frame_dt;
+    let mut phase = 0.0f32;
+    let lon0 = cam_xy;
+    let lat0 = cam_z;
     let globe_rot_speed = settings.globe_rotation_speed / 1000.;
     let cam_rot_speed = settings.cam_rotation_speed / 1000.;
+    let iss_mode = settings.globe_rotation_speed == 0.0 && settings.cam_rotation_speed == 0.0;
+    // arrow-key spin boost: each press adds velocity, decays back to base.
+    // right = spin up prograde, left = spin up retrograde.
+    // up/down = tilt view latitude, clamped to camera limits.
+    let mut boost_vel = 0.0f32;
+    let mut lat_off = 0.0f32;
+    const BOOST_STEP: f32 = 0.0025; // per keypress, rad/frame units of phase
+    const BOOST_DECAY: f32 = 0.985; // per frame, ~2.3s to half
+    const LAT_STEP: f32 = 0.05;
 
     loop {
         if poll(Duration::from_millis(1000 / settings.refresh_rate as u64)).unwrap() {
             match read().unwrap() {
-                // pressing any key exists the program
-                Event::Key(_) => break,
+                Event::Key(event) => match event.code {
+                    KeyCode::Right => boost_vel += BOOST_STEP,
+                    KeyCode::Left => boost_vel -= BOOST_STEP,
+                    KeyCode::Up => lat_off = (lat_off + LAT_STEP).min(1.5),
+                    KeyCode::Down => lat_off = (lat_off - LAT_STEP).max(-1.5),
+                    _ => break,
+                },
                 Event::Resize(width, height) => {
                     term_size = (width, height);
-                    canvas = if width > height {
-                        Canvas::new(height * 8, height * 8, None)
-                    } else {
-                        Canvas::new(width * 4, width * 4, None)
-                    };
+                    canvas = fullscreen_canvas(term_size);
+                    prev = vec![vec![' '; width as usize]; height as usize];
+                    stdout.execute(terminal::Clear(ClearType::All)).unwrap();
                 }
                 Event::Mouse(_) => (),
             }
         }
 
-        // apply globe rotation
-        globe.angle += globe_rot_speed;
-        cam_xy -= globe_rot_speed / 2.;
+        // decay boost toward zero, keep ISS base rate underneath
+        boost_vel *= BOOST_DECAY;
+        if boost_vel.abs() < 1e-7 {
+            boost_vel = 0.0;
+        }
 
-        // apply camera rotation
-        cam_xy -= cam_rot_speed;
+        if iss_mode {
+            // equatorial orbit at ISS rate: steady longitude sweep,
+            // latitude fixed + user tilt. arrows add extra velocity on top.
+            phase += d_phase + boost_vel;
+            cam_xy = lon0 + phase;
+            cam_z = (lat0 + lat_off).clamp(-1.5, 1.5);
+            globe.angle += d_earth;
+            cam_xy -= d_earth / 2.;
+        } else {
+            // manual spin mode: left/right push camera, up/down tilt
+            globe.angle += globe_rot_speed;
+            cam_xy -= globe_rot_speed / 2.;
+            cam_xy -= cam_rot_speed + boost_vel;
+            cam_z = (lat0 + lat_off).clamp(-1.5, 1.5);
+        }
 
         globe.camera.update(cam_zoom, cam_xy, cam_z);
 
@@ -401,15 +439,15 @@ fn start_screensaver(settings: Settings) {
         canvas.clear();
         globe.render_on(&mut canvas);
 
-        // print canvas to terminal
-        print_canvas(&mut canvas, &term_size, &mut stdout);
+        // diffed print: only changed cells, one flush per frame
+        print_canvas_diff(&mut canvas, &mut prev, &term_size, &mut stdout);
     }
 
     stdout.execute(cursor::Show).unwrap();
     stdout.execute(cursor::EnableBlinking).unwrap();
+    stdout.execute(LeaveAlternateScreen).unwrap();
 
     terminal::disable_raw_mode().unwrap();
-    stdout.execute(terminal::Clear(ClearType::All)).unwrap();
 }
 
 /// Interactive mode allows using mouse and/or keyboard to control the globe.
@@ -570,6 +608,49 @@ fn start_interactive(settings: Settings) {
 
     terminal::disable_raw_mode().unwrap();
     stdout.execute(terminal::Clear(ClearType::All)).unwrap();
+}
+
+/// Fullscreen canvas: one pixel block per terminal row/col band.
+/// char_pix stays (4,8) so lib math unchanged; grid exactly fills screen.
+fn fullscreen_canvas(term_size: (u16, u16)) -> Canvas {
+    Canvas::new(term_size.0 * 4, term_size.1 * 8, None)
+}
+
+/// Diffed fullscreen print: overwrite only changed cells, single flush,
+/// wrapped in synchronized output so Kitty presents atomically, no tear.
+/// Skips flush entirely when nothing changed (idle frames free).
+fn print_canvas_diff(
+    canvas: &mut Canvas,
+    prev: &mut Vec<Vec<char>>,
+    term_size: &(u16, u16),
+    stdout: &mut Stdout,
+) {
+    let w = term_size.0 as usize;
+    let h = term_size.1 as usize;
+    // synchronized output open
+    stdout.queue(Print("\x1b[?2026h")).unwrap();
+    let mut last_x: i32 = -2;
+    let mut last_y: i32 = -2;
+    let mut changed = 0;
+    for y in 0..h {
+        for x in 0..w {
+            let c = canvas.matrix[y][x];
+            if prev[y][x] != c {
+                if y as i32 != last_y || x as i32 != last_x + 1 {
+                    stdout.queue(cursor::MoveTo(x as u16, y as u16)).unwrap();
+                }
+                stdout.queue(Print(c)).unwrap();
+                prev[y][x] = c;
+                last_x = x as i32;
+                last_y = y as i32;
+                changed += 1;
+            }
+        }
+    }
+    stdout.queue(Print("\x1b[?2026l")).unwrap();
+    if changed > 0 {
+        stdout.flush().unwrap();
+    }
 }
 
 /// Prints globe canvas to stdout.
