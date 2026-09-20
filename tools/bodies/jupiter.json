@@ -1,0 +1,17 @@
+{
+  "name": "jupiter",
+  "cols": 1440,
+  "rows": 720,
+  "note": "banded gas giant: belts/zones plus Great Red Spot; full-ramp LIB palette for max contrast",
+  "day": {
+    "source": "sources/jupiter.jpg",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_jupiter.jpg",
+    "luminance": "luma",
+    "gamma": 0.8,
+    "stretch": [
+      1.0,
+      99.0
+    ],
+    "palette": " .:;',wiogOLXHWYV@"
+  }
+}

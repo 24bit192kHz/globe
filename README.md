@@ -98,6 +98,30 @@ one-glyph render, for about half the cost per sample. `-G half` and
 `-G ascii` are progressively cheaper, and `-G ascii` alone is *lighter* than
 the old renderer at the same resolution.
 
+## Bodies
+
+`-t` picks what to render: `earth` (default), `sun`, `mercury`, `venus`,
+`moon`, `mars`, `jupiter`, `saturn`, `uranus`, `neptune`:
+```
+globe -s -t mars
+globe -i -t saturn
+```
+
+Earth is the only body with a night side, so `-n` only changes earth: it is
+emissive-only bodies that have no night map, which is also why the sun never
+shows a terminator. Saturn's rings are not drawn, the globe is a sphere.
+`--texture` and `--texture-night` load your own ascii map on top of the
+template:
+```
+globe -s --texture ./my-map.txt
+```
+
+More bodies are a bake away: drop a 2:1 equirectangular image into
+`tools/sources/`, describe it in `tools/bodies/<name>.json` (the schema is in
+the baker's docstring, `python3 tools/bake_textures.py --list` shows what is
+there), bake it with `python3 tools/bake_textures.py --body <name> --fetch`,
+and add the variant to `GlobeTemplate`.
+
 It's kind of boring. Let's add some camera rotation to make it look more
 alive:
 ```
@@ -174,3 +198,8 @@ See `globe-cli` code for examples of runtime changes to the `Globe` and it's
 
 Rendering math based on 
 [C++ code by DinoZ1729](https://github.com/DinoZ1729/Earth).
+
+Sun, planet and moon imagery from
+[Solar System Scope](https://www.solarsystemscope.com/textures/), used under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and baked into
+palette index maps by `tools/bake_textures.py`.

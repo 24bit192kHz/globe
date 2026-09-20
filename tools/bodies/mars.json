@@ -1,0 +1,20 @@
+{
+  "name": "mars",
+  "cols": 1440,
+  "rows": 720,
+  "note": "red desert with dark albedo features",
+  "day": {
+    "source": "sources/mars.jpg",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_mars.jpg",
+    "luminance": "luma",
+    "gamma": 0.9,
+    "stretch": [
+      1.0,
+      95.0
+    ],
+    "window": [
+      1,
+      17
+    ]
+  }
+}

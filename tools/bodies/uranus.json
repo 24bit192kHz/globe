@@ -1,0 +1,20 @@
+{
+  "name": "uranus",
+  "cols": 1440,
+  "rows": 720,
+  "note": "featureless cyan disc",
+  "day": {
+    "source": "sources/uranus.jpg",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_uranus.jpg",
+    "luminance": "luma",
+    "gamma": 1.0,
+    "stretch": [
+      1.0,
+      99.0
+    ],
+    "window": [
+      1,
+      17
+    ]
+  }
+}

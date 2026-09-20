@@ -1,0 +1,20 @@
+{
+  "name": "venus",
+  "cols": 1440,
+  "rows": 720,
+  "note": "radar surface view (the atmosphere map is nearly featureless)",
+  "day": {
+    "source": "sources/venus.jpg",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_venus_surface.jpg",
+    "luminance": "luma",
+    "gamma": 1.0,
+    "stretch": [
+      1.0,
+      99.0
+    ],
+    "window": [
+      1,
+      17
+    ]
+  }
+}
