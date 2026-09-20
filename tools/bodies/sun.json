@@ -1,0 +1,20 @@
+{
+  "name": "sun",
+  "cols": 1440,
+  "rows": 720,
+  "note": "always lit (no night map); emissive: kept as bright as possible while preserving granulation detail (see note on mean>=13 target)",
+  "day": {
+    "source": "sources/sun.jpg",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_sun.jpg",
+    "luminance": "luma",
+    "gamma": 0.4,
+    "stretch": [
+      0.5,
+      95.0
+    ],
+    "window": [
+      5,
+      17
+    ]
+  }
+}

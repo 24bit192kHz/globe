@@ -16,7 +16,7 @@ use crossterm::{
 use crossterm::{event::MouseEvent, terminal};
 
 use crossterm::terminal::{ClearType, EnterAlternateScreen, LeaveAlternateScreen};
-use globe::{CameraConfig, Canvas, GlobeConfig, GlobeTemplate, Glyph};
+use globe::{CameraConfig, Canvas, Globe, GlobeConfig, GlobeTemplate, Glyph};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
@@ -38,6 +38,12 @@ struct Settings {
     night: bool,
     /// Sub-cell glyph alphabet: render resolution per character cell
     glyph: Glyph,
+    /// Built-in body to display
+    template: GlobeTemplate,
+    /// Optional custom day texture path, overriding the template map
+    texture: Option<String>,
+    /// Optional custom night texture path
+    texture_night: Option<String>,
     /// Initial location coordinates
     coords: (f32, f32),
 }
@@ -136,15 +142,16 @@ fn main() {
             Arg::new("template")
                 .short('t')
                 .long("template")
-                .help("Display a built-in globe template")
+                .help("Built-in body to display")
                 .takes_value(true)
                 .value_name("planet")
+                .possible_values(&GlobeTemplate::NAMES)
                 .default_value("earth"),
         )
         .arg(
             Arg::new("texture")
                 .long("texture")
-                .help("Apply custom texture from file")
+                .help("Apply custom texture from file (overrides the template day map)")
                 .takes_value(true)
                 .value_name("path"),
         )
@@ -210,6 +217,10 @@ fn main() {
         night: matches.is_present("night"),
         glyph: Glyph::from_name(matches.value_of("glyph").unwrap())
             .expect("unknown glyph mode"),
+        template: GlobeTemplate::from_name(matches.value_of("template").unwrap())
+            .expect("unknown template"),
+        texture: matches.value_of("texture").map(str::to_string),
+        texture_night: matches.value_of("texture_night").map(str::to_string),
         coords,
     };
 
@@ -242,12 +253,7 @@ fn start_listing(settings: Settings, coords_input: Vec<&str>) {
     let mut cam_xy = 0.;
     let mut cam_z = 0.;
 
-    let mut globe = GlobeConfig::new()
-        .use_template(GlobeTemplate::Earth)
-        .with_glyph(settings.glyph)
-        .with_camera(CameraConfig::new(cam_zoom, cam_xy, cam_z))
-        .display_night(settings.night)
-        .build();
+    let mut globe = build_globe(&settings, cam_zoom, cam_xy, cam_z);
 
     let coord_list: Vec<(f32, f32)> = coords_input
         .iter()
@@ -370,12 +376,7 @@ fn start_screensaver(settings: Settings) {
     // set the initial coordinates
     focus_target(settings.coords, 0., &mut cam_xy, &mut cam_z);
 
-    let mut globe = GlobeConfig::new()
-        .use_template(GlobeTemplate::Earth)
-        .with_glyph(settings.glyph)
-        .with_camera(CameraConfig::new(cam_zoom, cam_xy, cam_z))
-        .display_night(settings.night)
-        .build();
+    let mut globe = build_globe(&settings, cam_zoom, cam_xy, cam_z);
 
     // equatorial orbit at ISS rate: camera circles equator,
     // one revolution per T = 92.9 min = 5574 s (ISS period, no inclination).
@@ -479,12 +480,7 @@ fn start_interactive(settings: Settings) {
     // set the initial coordinates
     focus_target(settings.coords, 0., &mut cam_xy, &mut cam_z);
 
-    let mut globe = GlobeConfig::new()
-        .use_template(GlobeTemplate::Earth)
-        .with_glyph(settings.glyph)
-        .with_camera(CameraConfig::new(cam_zoom, cam_xy, cam_z))
-        .display_night(settings.night)
-        .build();
+    let mut globe = build_globe(&settings, cam_zoom, cam_xy, cam_z);
 
     let mut globe_rot_speed = settings.globe_rotation_speed / 1000.;
     let mut cam_rot_speed = settings.cam_rotation_speed / 1000.;
@@ -610,6 +606,34 @@ fn start_interactive(settings: Settings) {
 
     terminal::disable_raw_mode().unwrap();
     stdout.execute(terminal::Clear(ClearType::All)).unwrap();
+}
+
+/// Globe configured from the command line: the template supplies its baked
+/// map, any explicit texture files replace it, then alphabet and camera.
+fn build_globe(settings: &Settings, cam_zoom: f32, cam_xy: f32, cam_z: f32) -> Globe {
+    let mut config = GlobeConfig::new()
+        .use_template(settings.template)
+        .with_glyph(settings.glyph)
+        .with_camera(CameraConfig::new(cam_zoom, cam_xy, cam_z))
+        .display_night(settings.night);
+    if let Some(path) = &settings.texture {
+        config = config.with_texture(&read_map(path), None);
+    }
+    if let Some(path) = &settings.texture_night {
+        config = config.with_night_texture(&read_map(path), None);
+    }
+    config.build()
+}
+
+/// Reads an ascii texture map, failing with a message instead of a panic.
+fn read_map(path: &str) -> String {
+    match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(err) => {
+            eprintln!("globe: cannot read texture map {path}: {err}");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Fullscreen canvas: one glyph per terminal cell, so the render grid is

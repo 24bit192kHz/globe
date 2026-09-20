@@ -1,0 +1,16 @@
+{
+  "name": "saturn",
+  "cols": 1440,
+  "rows": 720,
+  "note": "banded gas giant (rings are not drawn: the renderer is a sphere)",
+  "day": {
+    "source": "sources/saturn.jpg",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_saturn.jpg",
+    "luminance": "luma",
+    "gamma": 1.0,
+    "stretch": [
+      1.0,
+      99.0
+    ]
+  }
+}

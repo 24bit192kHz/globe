@@ -885,6 +885,14 @@ impl GlobeConfig {
         self.with_texture(&out_string, palette)
     }
 
+    /// Sets the night texture to be loaded from the given path.
+    pub fn with_night_texture_at(self, path: &str, palette: Option<Vec<char>>) -> Self {
+        let mut file = File::open(path).unwrap();
+        let mut out_string = String::new();
+        file.read_to_string(&mut out_string).unwrap();
+        self.with_night_texture(&out_string, palette)
+    }
+
     /// Sets the day texture from a baked image.
     pub fn with_baked_texture(mut self, day: Baked) -> Self {
         self.day = Some(ImageSource::Baked(day));
@@ -905,11 +913,15 @@ impl GlobeConfig {
 
     /// Builds new `Globe` from the collected configuration settings.
     pub fn build(mut self) -> Globe {
-        if let Some(template) = &self.template {
-            match template {
-                GlobeTemplate::Earth => {
-                    self.day = Some(ImageSource::Baked(Baked::parse(EARTH_HIGH_RES)));
-                    self.night = Some(ImageSource::Baked(Baked::parse(EARTH_NIGHT_HIGH_RES)));
+        if let Some(template) = self.template {
+            // An explicit day map replaces the whole template: blending a
+            // custom map with a built-in night side would mean mixing two
+            // unrelated palettes and sizes.
+            if self.day.is_none() {
+                let (day, night) = template.maps();
+                self.day = Some(ImageSource::Baked(Baked::parse(day)));
+                if self.night.is_none() {
+                    self.night = night.map(|n| ImageSource::Baked(Baked::parse(n)));
                 }
             }
         }
@@ -947,7 +959,14 @@ fn assemble(day: ImageSource, night: Option<ImageSource>, palette: Option<Vec<ch
         ImageSource::Baked(baked) => (Cow::Borrowed(baked.data), baked.palette.clone(), baked.size),
     };
     let night = night.map(|night| match night {
-        ImageSource::Ascii(image) => Cow::Owned(index_image(&image, &mut palette).0),
+        ImageSource::Ascii(image) => {
+            let (data, night_size) = index_image(&image, &mut palette);
+            assert_eq!(
+                night_size, size,
+                "night texture must match the day texture size"
+            );
+            Cow::Owned(data)
+        }
         ImageSource::Baked(baked) => {
             assert_eq!(
                 baked.palette, palette,
@@ -968,15 +987,101 @@ fn assemble(day: ImageSource, night: Option<ImageSource>, palette: Option<Vec<ch
     }
 }
 
-/// Built-in globe template enumeration.
+/// Built-in globe template: one solar system body.
+///
+/// Each template carries a baked map at 1440x720 palette levels; earth also
+/// carries a night side. Bodies without a night map simply ignore
+/// [`GlobeConfig::display_night`], which is also what makes the sun
+/// emissive: no night map, no terminator.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GlobeTemplate {
     Earth,
-    // Moon,
-    // Mars,
+    Sun,
+    Mercury,
+    Venus,
+    Moon,
+    Mars,
+    Jupiter,
+    Saturn,
+    Uranus,
+    Neptune,
 }
 
-static EARTH_HIGH_RES: &[u8] = include_bytes!("../textures/earth_hd.gidx");
-static EARTH_NIGHT_HIGH_RES: &[u8] = include_bytes!("../textures/earth_night_hd.gidx");
+impl GlobeTemplate {
+    /// Every template, in menu order.
+    pub const ALL: [GlobeTemplate; 10] = [
+        GlobeTemplate::Earth,
+        GlobeTemplate::Sun,
+        GlobeTemplate::Mercury,
+        GlobeTemplate::Venus,
+        GlobeTemplate::Moon,
+        GlobeTemplate::Mars,
+        GlobeTemplate::Jupiter,
+        GlobeTemplate::Saturn,
+        GlobeTemplate::Uranus,
+        GlobeTemplate::Neptune,
+    ];
+
+    /// Stable lowercase name, as accepted by [`GlobeTemplate::from_name`].
+    pub const fn name(self) -> &'static str {
+        match self {
+            GlobeTemplate::Earth => "earth",
+            GlobeTemplate::Sun => "sun",
+            GlobeTemplate::Mercury => "mercury",
+            GlobeTemplate::Venus => "venus",
+            GlobeTemplate::Moon => "moon",
+            GlobeTemplate::Mars => "mars",
+            GlobeTemplate::Jupiter => "jupiter",
+            GlobeTemplate::Saturn => "saturn",
+            GlobeTemplate::Uranus => "uranus",
+            GlobeTemplate::Neptune => "neptune",
+        }
+    }
+
+    /// Names of every template, for menus and CLI validation.
+    pub const NAMES: [&'static str; GlobeTemplate::ALL.len()] = {
+        let mut names = [""; GlobeTemplate::ALL.len()];
+        let mut i = 0;
+        while i < GlobeTemplate::ALL.len() {
+            names[i] = GlobeTemplate::ALL[i].name();
+            i += 1;
+        }
+        names
+    };
+
+    /// Parses a [`GlobeTemplate::name`].
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|t| t.name() == name)
+    }
+
+    /// Baked day map, plus the night map for bodies that have one.
+    fn maps(self) -> (&'static [u8], Option<&'static [u8]>) {
+        match self {
+            GlobeTemplate::Earth => (EARTH_HD, Some(EARTH_NIGHT_HD)),
+            GlobeTemplate::Sun => (SUN_HD, None),
+            GlobeTemplate::Mercury => (MERCURY_HD, None),
+            GlobeTemplate::Venus => (VENUS_HD, None),
+            GlobeTemplate::Moon => (MOON_HD, None),
+            GlobeTemplate::Mars => (MARS_HD, None),
+            GlobeTemplate::Jupiter => (JUPITER_HD, None),
+            GlobeTemplate::Saturn => (SATURN_HD, None),
+            GlobeTemplate::Uranus => (URANUS_HD, None),
+            GlobeTemplate::Neptune => (NEPTUNE_HD, None),
+        }
+    }
+}
+
+static EARTH_HD: &[u8] = include_bytes!("../textures/earth_hd.gidx");
+static EARTH_NIGHT_HD: &[u8] = include_bytes!("../textures/earth_night_hd.gidx");
+static SUN_HD: &[u8] = include_bytes!("../textures/sun_hd.gidx");
+static MERCURY_HD: &[u8] = include_bytes!("../textures/mercury_hd.gidx");
+static VENUS_HD: &[u8] = include_bytes!("../textures/venus_hd.gidx");
+static MOON_HD: &[u8] = include_bytes!("../textures/moon_hd.gidx");
+static MARS_HD: &[u8] = include_bytes!("../textures/mars_hd.gidx");
+static JUPITER_HD: &[u8] = include_bytes!("../textures/jupiter_hd.gidx");
+static SATURN_HD: &[u8] = include_bytes!("../textures/saturn_hd.gidx");
+static URANUS_HD: &[u8] = include_bytes!("../textures/uranus_hd.gidx");
+static NEPTUNE_HD: &[u8] = include_bytes!("../textures/neptune_hd.gidx");
 
 /// Camera configuration struct implementing the builder pattern.
 pub struct CameraConfig {

@@ -1,0 +1,20 @@
+{
+  "name": "neptune",
+  "cols": 1440,
+  "rows": 720,
+  "note": "banded ice giant",
+  "day": {
+    "source": "sources/neptune.jpg",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_neptune.jpg",
+    "luminance": "luma",
+    "gamma": 1.0,
+    "stretch": [
+      1.0,
+      99.0
+    ],
+    "window": [
+      1,
+      17
+    ]
+  }
+}

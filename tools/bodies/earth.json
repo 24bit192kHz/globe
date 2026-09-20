@@ -1,0 +1,20 @@
+{
+  "name": "earth",
+  "cols": 1440,
+  "rows": 720,
+  "note": "Blue Marble day side + city lights; ocean dark, land and ice bright",
+  "day": {
+    "source": "earth-day.jpg",
+    "url": null,
+    "luminance": "earth_day",
+    "gamma": 0.8,
+    "palette": " .:',;,wiogOLXHWYV@"
+  },
+  "night": {
+    "source": "earth-night.jpg",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_earth_nightmap.jpg",
+    "luminance": "earth_night",
+    "gamma": 0.6,
+    "palette": " .:',;,wiogOLXHWYV@"
+  }
+}
