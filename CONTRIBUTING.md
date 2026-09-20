@@ -22,6 +22,15 @@ All three commands above were verified against the working tree
 Screensaver (`-s`), interactive (`-i`) and listing (`-p`) modes need a real
 terminal and were **not** exercised headlessly here.
 
+## Releasing
+
+Releases are cut from a tag: bump `version` in both `globe/Cargo.toml` and
+`globe-cli/Cargo.toml` (they must match), update `CHANGELOG.md`, commit, then
+push a `vX.Y.Z` tag. `.github/workflows/release.yml` checks the tag against the
+manifests, runs the tests, publishes `globe` before `globe-cli` (the CLI
+depends on the library by version, so it needs a `CARGO_REGISTRY_TOKEN`
+repository secret) and opens a GitHub release with generated notes.
+
 ## Checks CI enforces
 
 CI (`.github/workflows/ci.yml`) runs these four steps on Ubuntu, macOS and

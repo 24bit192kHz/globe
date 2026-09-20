@@ -1,0 +1,45 @@
+name: Release
+
+# Publishes both crates and cuts a GitHub release when a `vX.Y.Z` tag is
+# pushed. Requires a CARGO_REGISTRY_TOKEN repository secret; `globe` is
+# published first because `globe-cli` depends on it by version.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: every crate carries the tagged version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for crate in globe globe-cli; do
+            version=$(cargo metadata --no-deps --format-version 1 |
+              jq -r ".packages[] | select(.name == \"$crate\") | .version")
+            if [ "$version" != "$tag" ]; then
+              echo "::error::$crate is $version but the tag is $tag"
+              exit 1
+            fi
+          done
+      - name: tests
+        run: cargo test --workspace
+      - name: publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish -p globe
+          # give the registry time to index the lib before the CLI resolves it
+          sleep 30
+          cargo publish -p globe-cli
+      - name: release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
