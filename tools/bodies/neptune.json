@@ -1,7 +1,7 @@
 {
   "name": "neptune",
-  "cols": 1440,
-  "rows": 720,
+  "cols": 1024,
+  "rows": 512,
   "note": "banded ice giant",
   "day": {
     "source": "sources/neptune.jpg",

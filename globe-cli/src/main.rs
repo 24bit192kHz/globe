@@ -695,20 +695,30 @@ fn print_canvas_diff(
     }
 }
 
-/// Prints globe canvas to stdout, one cleared row at a time with the cursor
-/// returned to the row start, so the windowed modes can redraw in place
-/// without the alternate screen.
+/// Prints globe canvas to stdout, one cleared row at a time, and leaves the
+/// cursor back where the canvas started so the next frame redraws in place.
+/// Without that the windowed modes walk one row down the screen per frame and
+/// smear the globe across the terminal.
 fn print_canvas(canvas: &Canvas, stdout: &mut Stdout) {
     let (w, h) = canvas.get_size();
-    let mut out = String::with_capacity(w * 4 + 16);
+    let mut out = String::with_capacity(w * 4 + 24);
     for y in 0..h {
         out.clear();
         out.push_str("\x1b[2K"); // Clear(CurrentLine)
         out.extend(canvas.row(y).iter());
-        write!(out, "\x1b[1B\x1b[{}D", w).unwrap(); // MoveDown(1), MoveLeft(w)
+        // step down between rows only: stepping past the last row would
+        // scroll the terminal once per frame
+        if y + 1 < h {
+            write!(out, "\x1b[1B\x1b[{}D", w).unwrap(); // MoveDown(1), MoveLeft
+        } else {
+            write!(out, "\x1b[{}D", w).unwrap(); // MoveLeft(w)
+        }
         stdout.write_all(out.as_bytes()).unwrap();
         stdout.flush().unwrap();
     }
+    write!(out, "\x1b[{}A", h.saturating_sub(1)).unwrap(); // back to the top row
+    stdout.write_all(out.as_bytes()).unwrap();
+    stdout.flush().unwrap();
 }
 
 /// Orients the camera so that it focuses on the given target coordinates.

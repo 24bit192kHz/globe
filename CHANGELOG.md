@@ -41,7 +41,18 @@ The fork's rendering and bodies overhaul, on top of upstream v0.2.1.
   and a night map of the wrong size fails fast with an explicit message.
 - Compact baked `GIDX1` textures (`magic, cols u32le, rows u32le, levels u8,
   palette bytes, rows*cols level bytes`), `include_bytes!`d straight into the
-  binary: no parse, no copy, no per-texel heap.
+  binary: no parse, no copy, no per-texel heap. Maps are baked at 1024x512
+  (11 maps, 5.6 MB, 7 MB binary) rather than 1440x720: half the repository and
+  binary weight for a dot grid that stays ~1:1 with the texture up to a
+  ~180-row terminal, and `--cols`/`--rows` re-bake higher on demand.
+- Lightweight demo assets: five 1-bit GIFs recorded from real pty captures
+  (screensaver, body tour, the three alphabets, interactive mode, saturn's
+  rings), 454 KB together, replacing the 3.2 MB upstream drag recording; the
+  repository ignores the baker's optional text dumps, `__pycache__`, `*.pyc`,
+  editor and OS noise, and the unreferenced legacy `earth_night.txt` map is
+  gone.
+- Texture maps baked at 1024x512 instead of 1440x720: 5.6 MB of maps and a
+  7 MB binary instead of 11.1 MB and 12.7 MB.
 - Body-driven texture baker: each body is described by
   `tools/bodies/<name>.json` (`source`, `url`, `luminance`, `gamma`,
   `stretch`, `window`, optional `night` and `ring` sections; schema in the
@@ -73,6 +84,10 @@ The fork's rendering and bodies overhaul, on top of upstream v0.2.1.
 
 ### Fixed
 
+- The windowed modes (`-i`, `-p`) no longer walk one row down the screen per
+  frame: the cursor returns to the canvas origin, so the globe redraws in
+  place instead of smearing across the terminal (visible in the old upstream
+  drag recording).
 - Terminator orientation: the light vector ran from the sun to the surface,
   against its own comment, so the day side was inverted; the day map now
   lands on the sun-facing hemisphere, matching the sun drawn in the sky.

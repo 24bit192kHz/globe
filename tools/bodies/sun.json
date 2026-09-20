@@ -1,7 +1,7 @@
 {
   "name": "sun",
-  "cols": 1440,
-  "rows": 720,
+  "cols": 1024,
+  "rows": 512,
   "note": "always lit (no night map); emissive: kept as bright as possible while preserving granulation detail (see note on mean>=13 target)",
   "day": {
     "source": "sources/sun.jpg",

@@ -1,7 +1,7 @@
 {
   "name": "jupiter",
-  "cols": 1440,
-  "rows": 720,
+  "cols": 1024,
+  "rows": 512,
   "note": "banded gas giant: belts/zones plus Great Red Spot; full-ramp LIB palette for max contrast",
   "day": {
     "source": "sources/jupiter.jpg",
