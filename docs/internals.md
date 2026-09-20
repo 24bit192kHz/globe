@@ -408,7 +408,7 @@ regardless of terminal size, since storage is per cell, not per pixel.
 | rings | `Ring::parse`, `RING_MAGIC`, `RingGeom::cross`, `RingGeom::in_planet_shadow`, `bake_ring`, `write_ring`, `tools/bodies/saturn.json` |
 | frame loop, canvas | `Globe::render_on`, `Canvas`, `GlobeConfig::build`, `GlobeTemplate::default_zoom` |
 
-## How the demo video is made
+## Making a demo video
 
 `globe/examples/video.rs` renders a deterministic frame sequence to stdout as
 raw 8-bit gray frames and pipes it into ffmpeg:
@@ -417,7 +417,7 @@ raw 8-bit gray frames and pipes it into ffmpeg:
 cargo run --release --example video -- saturn 90 2.4 0.25 1 0.0003 |
   ffmpeg -f rawvideo -pixel_format gray -s 1920x1080 -framerate 30 -i - \
          -vf gblur=sigma=1.2 -c:v libsvtav1 -preset 6 -crf 38 -pix_fmt yuv420p \
-         -g 180 demo-saturn-1080p.mp4
+         -g 180 saturn.mp4
 ```
 
 Arguments are `BODY FRAMES ZOOM [night] [orbit_turns] [dot] [spin]`: the camera
@@ -441,4 +441,4 @@ feature. Measured on the same 120-frame source (AV1, preset 6):
 
 A 1-dot Gaussian keeps the halftone grain and the ring structure visible while
 cutting the file five times, because it turns isolated 1-pixel deltas into
-values the encoder can predict. The shipped clip is the last row.
+values the encoder can predict. A one-dot Gaussian is what the last two rows use.
