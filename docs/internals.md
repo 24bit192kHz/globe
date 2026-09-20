@@ -407,3 +407,38 @@ regardless of terminal size, since storage is per cell, not per pixel.
 | textures, baking | `Baked::parse`, `BAKED_MAGIC`, `Texture::from_baked`, `index_image`, `assemble`, `GlobeTemplate::maps`, `levels_for`, `dither`, `write_gidx`, `LIB_PALETTE`, `LUMINANCE`, `earth_day`, `luma` |
 | rings | `Ring::parse`, `RING_MAGIC`, `RingGeom::cross`, `RingGeom::in_planet_shadow`, `bake_ring`, `write_ring`, `tools/bodies/saturn.json` |
 | frame loop, canvas | `Globe::render_on`, `Canvas`, `GlobeConfig::build`, `GlobeTemplate::default_zoom` |
+
+## How the demo video is made
+
+`globe/examples/video.rs` renders a deterministic frame sequence to stdout as
+raw 8-bit gray frames and pipes it into ffmpeg:
+
+```bash
+cargo run --release --example video -- saturn 90 2.4 0.25 1 0.0003 |
+  ffmpeg -f rawvideo -pixel_format gray -s 1920x1080 -framerate 30 -i - \
+         -vf gblur=sigma=1.2 -c:v libsvtav1 -preset 6 -crf 38 -pix_fmt yuv420p \
+         -g 180 demo-saturn-1080p.mp4
+```
+
+Arguments are `BODY FRAMES ZOOM [night] [orbit_turns] [dot] [spin]`: the camera
+sweeps `orbit_turns` revolutions over the clip, the globe spins `spin` radians
+per frame, and `dot` is how many output pixels one braille dot covers. At
+`dot = 1` the canvas is 960x270 cells, i.e. 1920x1080 braille dots, so the
+mapping is exactly one dot per pixel. Rendering happens as fast as it can; the
+video frame rate is set by ffmpeg, not by the renderer, which is why the clip
+stays smooth even though a 1080p frame takes about 0.3 s to render.
+
+The `gblur` is not decoration: 1080p of 1-bit dither is close to the worst case
+for a video codec, because every changed dot is an isolated single-pixel
+feature. Measured on the same 120-frame source (AV1, preset 6):
+
+| filter | crf | size |
+| --- | --- | --- |
+| none | 30 | 35.8 MB |
+| `boxblur=1:1` | 34 | 14.2 MB |
+| `boxblur=1:1` | 42 | 7.0 MB |
+| `gblur=sigma=1.2` | 38 | 7.2 MB |
+
+A 1-dot Gaussian keeps the halftone grain and the ring structure visible while
+cutting the file five times, because it turns isolated 1-pixel deltas into
+values the encoder can predict. The shipped clip is the last row.
