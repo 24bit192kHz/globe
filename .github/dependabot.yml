@@ -4,6 +4,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # clap 4 and crossterm 0.29 are breaking bumps this code does not take yet,
+    # so major updates only produce red pull requests
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     groups:
       minor-patch:
         patterns:

@@ -1,0 +1,9 @@
+# Keep newlines stable across platforms: CI runs `cargo fmt --all --check` on
+# Windows as well, and rustfmt is configured for Unix newlines. Without this,
+# a Windows checkout gets CRLF and the format gate fails.
+* text=auto eol=lf
+
+# binaries: never touch them
+*.jpg binary
+*.png binary
+*.gidx binary
