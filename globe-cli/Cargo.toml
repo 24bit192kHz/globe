@@ -19,7 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 globe = { version = "0.3.0", path = "../globe" }
-crossterm = "0.18.2"
+crossterm = "0.29.0"
 clap = { version = "3.0.0", default-features = false, features = ["std"] }
 
 [lints]
