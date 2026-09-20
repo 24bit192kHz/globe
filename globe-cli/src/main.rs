@@ -3,6 +3,7 @@
 #![allow(unused_variables)]
 
 use std::f32::consts::PI;
+use std::fmt::Write as _;
 use std::io::{stdin, stdout, Read, Stdout, Write};
 use std::time::Duration;
 
@@ -10,13 +11,12 @@ use clap::{App, AppSettings, Arg};
 use crossterm::{
     cursor,
     event::{poll, read, Event, KeyCode},
-    style::Print,
-    ExecutableCommand, QueueableCommand,
+    ExecutableCommand,
 };
 use crossterm::{event::MouseEvent, terminal};
 
 use crossterm::terminal::{ClearType, EnterAlternateScreen, LeaveAlternateScreen};
-use globe::{CameraConfig, Canvas, GlobeConfig, GlobeTemplate};
+use globe::{CameraConfig, Canvas, GlobeConfig, GlobeTemplate, Glyph};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
@@ -36,6 +36,8 @@ struct Settings {
     focus_speed: f32,
     /// Globe night side switch
     night: bool,
+    /// Sub-cell glyph alphabet: render resolution per character cell
+    glyph: Glyph,
     /// Initial location coordinates
     coords: (f32, f32),
 }
@@ -113,6 +115,16 @@ fn main() {
                 .takes_value(true)
                 .value_name("coords")
                 .default_value("0.4,0.6"),
+        )
+        .arg(
+            Arg::new("glyph")
+                .short('G')
+                .long("glyph")
+                .help("Sub-cell glyph alphabet: ascii (1 sample/cell), half (2), braille (8)")
+                .takes_value(true)
+                .value_name("mode")
+                .possible_values(["ascii", "half", "braille"])
+                .default_value("braille"),
         )
         .arg(
             Arg::new("night")
@@ -196,6 +208,8 @@ fn main() {
             .parse()
             .expect("failed parsing focus speed value"),
         night: matches.is_present("night"),
+        glyph: Glyph::from_name(matches.value_of("glyph").unwrap())
+            .expect("unknown glyph mode"),
         coords,
     };
 
@@ -222,11 +236,7 @@ fn start_listing(settings: Settings, coords_input: Vec<&str>) {
     stdout.execute(cursor::DisableBlinking).unwrap();
 
     let mut term_size = terminal::size().unwrap();
-    let mut canvas = if term_size.0 > term_size.1 {
-        Canvas::new(term_size.1 * 8, term_size.1 * 8, None)
-    } else {
-        Canvas::new(term_size.0 * 4, term_size.0 * 4, None)
-    };
+    let mut canvas = window_canvas(term_size);
 
     let mut cam_zoom = settings.cam_zoom;
     let mut cam_xy = 0.;
@@ -234,6 +244,7 @@ fn start_listing(settings: Settings, coords_input: Vec<&str>) {
 
     let mut globe = GlobeConfig::new()
         .use_template(GlobeTemplate::Earth)
+        .with_glyph(settings.glyph)
         .with_camera(CameraConfig::new(cam_zoom, cam_xy, cam_z))
         .display_night(settings.night)
         .build();
@@ -292,11 +303,7 @@ fn start_listing(settings: Settings, coords_input: Vec<&str>) {
                 },
                 Event::Resize(width, height) => {
                     term_size = (width, height);
-                    canvas = if width > height {
-                        Canvas::new(height * 8, height * 8, None)
-                    } else {
-                        Canvas::new(width * 4, width * 4, None)
-                    };
+                    canvas = window_canvas(term_size);
                 }
                 Event::Mouse(_) => (),
             }
@@ -330,7 +337,7 @@ fn start_listing(settings: Settings, coords_input: Vec<&str>) {
         globe.render_on(&mut canvas);
 
         // print canvas to terminal
-        print_canvas(&mut canvas, &term_size, &mut stdout);
+        print_canvas(&canvas, &mut stdout);
     }
 
     stdout.execute(cursor::Show).unwrap();
@@ -352,8 +359,9 @@ fn start_screensaver(settings: Settings) {
     let mut term_size = terminal::size().unwrap();
     let mut canvas = fullscreen_canvas(term_size);
     // diff buffer: previous frame, sized in char cells
-    let mut prev: Vec<Vec<char>> =
-        vec![vec![' '; term_size.0 as usize]; term_size.1 as usize];
+    let mut prev: Vec<char> = vec![' '; term_size.0 as usize * term_size.1 as usize];
+    // one reused output buffer: changed cells are batched into runs
+    let mut out = String::new();
 
     let cam_zoom = settings.cam_zoom;
     let mut cam_xy = 0.;
@@ -364,6 +372,7 @@ fn start_screensaver(settings: Settings) {
 
     let mut globe = GlobeConfig::new()
         .use_template(GlobeTemplate::Earth)
+        .with_glyph(settings.glyph)
         .with_camera(CameraConfig::new(cam_zoom, cam_xy, cam_z))
         .display_night(settings.night)
         .build();
@@ -404,7 +413,7 @@ fn start_screensaver(settings: Settings) {
                 Event::Resize(width, height) => {
                     term_size = (width, height);
                     canvas = fullscreen_canvas(term_size);
-                    prev = vec![vec![' '; width as usize]; height as usize];
+                    prev = vec![' '; width as usize * height as usize];
                     stdout.execute(terminal::Clear(ClearType::All)).unwrap();
                 }
                 Event::Mouse(_) => (),
@@ -439,8 +448,8 @@ fn start_screensaver(settings: Settings) {
         canvas.clear();
         globe.render_on(&mut canvas);
 
-        // diffed print: only changed cells, one flush per frame
-        print_canvas_diff(&mut canvas, &mut prev, &term_size, &mut stdout);
+        // diffed print: only changed cells, batched, one flush per frame
+        print_canvas_diff(&canvas, &mut prev, &term_size, &mut out, &mut stdout);
     }
 
     stdout.execute(cursor::Show).unwrap();
@@ -461,11 +470,7 @@ fn start_interactive(settings: Settings) {
         .unwrap();
 
     let mut term_size = terminal::size().unwrap();
-    let mut canvas = if term_size.0 > term_size.1 {
-        Canvas::new(term_size.1 * 8, term_size.1 * 8, None)
-    } else {
-        Canvas::new(term_size.0 * 4, term_size.0 * 4, None)
-    };
+    let mut canvas = window_canvas(term_size);
 
     let mut cam_zoom = settings.cam_zoom;
     let mut cam_xy = 0.;
@@ -476,6 +481,7 @@ fn start_interactive(settings: Settings) {
 
     let mut globe = GlobeConfig::new()
         .use_template(GlobeTemplate::Earth)
+        .with_glyph(settings.glyph)
         .with_camera(CameraConfig::new(cam_zoom, cam_xy, cam_z))
         .display_night(settings.night)
         .build();
@@ -555,11 +561,7 @@ fn start_interactive(settings: Settings) {
                 },
                 Event::Resize(width, height) => {
                     term_size = (width, height);
-                    canvas = if width > height {
-                        Canvas::new(height * 8, height * 8, None)
-                    } else {
-                        Canvas::new(width * 4, width * 4, None)
-                    };
+                    canvas = window_canvas(term_size);
                 }
             }
         }
@@ -597,7 +599,7 @@ fn start_interactive(settings: Settings) {
         globe.render_on(&mut canvas);
 
         // print canvas to terminal
-        print_canvas(&mut canvas, &term_size, &mut stdout);
+        print_canvas(&canvas, &mut stdout);
     }
 
     stdout.execute(cursor::Show).unwrap();
@@ -610,74 +612,84 @@ fn start_interactive(settings: Settings) {
     stdout.execute(terminal::Clear(ClearType::All)).unwrap();
 }
 
-/// Fullscreen canvas: one pixel block per terminal row/col band.
-/// char_pix stays (4,8) so lib math unchanged; grid exactly fills screen.
+/// Fullscreen canvas: one glyph per terminal cell, so the render grid is
+/// exactly the terminal grid.
 fn fullscreen_canvas(term_size: (u16, u16)) -> Canvas {
-    Canvas::new(term_size.0 * 4, term_size.1 * 8, None)
+    Canvas::new(term_size.0, term_size.1, None)
 }
 
-/// Diffed fullscreen print: overwrite only changed cells, single flush,
-/// wrapped in synchronized output so Kitty presents atomically, no tear.
-/// Skips flush entirely when nothing changed (idle frames free).
+/// Windowed canvas for the modes that draw in place: a globe disk that
+/// fills the screen height, two cells wide per cell tall.
+fn window_canvas(term_size: (u16, u16)) -> Canvas {
+    if term_size.0 > term_size.1 {
+        Canvas::new(term_size.1.saturating_mul(2), term_size.1, None)
+    } else {
+        Canvas::new(term_size.0, (term_size.0 / 2).max(1), None)
+    }
+}
+
+/// Diffed fullscreen print: overwrite only changed cells, batched into runs
+/// in one reused buffer with a single write and flush per frame, wrapped in
+/// synchronized output so Kitty presents atomically, no tear. Unchanged
+/// rows cost one slice compare, unchanged frames cost nothing at all.
 fn print_canvas_diff(
-    canvas: &mut Canvas,
-    prev: &mut Vec<Vec<char>>,
+    canvas: &Canvas,
+    prev: &mut [char],
     term_size: &(u16, u16),
+    out: &mut String,
     stdout: &mut Stdout,
 ) {
     let w = term_size.0 as usize;
     let h = term_size.1 as usize;
+    out.clear();
     // synchronized output open
-    stdout.queue(Print("\x1b[?2026h")).unwrap();
-    let mut last_x: i32 = -2;
-    let mut last_y: i32 = -2;
-    let mut changed = 0;
+    out.push_str("\x1b[?2026h");
+    let mut changed = 0usize;
     for y in 0..h {
-        for x in 0..w {
-            let c = canvas.matrix[y][x];
-            if prev[y][x] != c {
-                if y as i32 != last_y || x as i32 != last_x + 1 {
-                    stdout.queue(cursor::MoveTo(x as u16, y as u16)).unwrap();
-                }
-                stdout.queue(Print(c)).unwrap();
-                prev[y][x] = c;
-                last_x = x as i32;
-                last_y = y as i32;
-                changed += 1;
+        let row = &canvas.matrix[y * w..y * w + w];
+        let prev_row = &mut prev[y * w..y * w + w];
+        if row == prev_row {
+            continue;
+        }
+        let mut x = 0;
+        while x < w {
+            if row[x] == prev_row[x] {
+                x += 1;
+                continue;
             }
+            let start = x;
+            while x < w && row[x] != prev_row[x] {
+                x += 1;
+            }
+            // cursor into place (ESC row;col H, the bytes MoveTo writes),
+            // then the whole changed run as one string
+            write!(out, "\x1b[{};{}H", y + 1, start + 1).unwrap();
+            out.extend(row[start..x].iter());
+            prev_row[start..x].copy_from_slice(&row[start..x]);
+            changed += x - start;
         }
     }
-    stdout.queue(Print("\x1b[?2026l")).unwrap();
+    // synchronized output close
+    out.push_str("\x1b[?2026l");
     if changed > 0 {
+        stdout.write_all(out.as_bytes()).unwrap();
         stdout.flush().unwrap();
     }
 }
 
-/// Prints globe canvas to stdout.
-fn print_canvas(canvas: &mut Canvas, term_size: &(u16, u16), stdout: &mut Stdout) {
-    let (canvas_size_x, canvas_size_y) = canvas.get_size();
-    for i in 0..canvas_size_y / canvas.char_pix.1 {
-        stdout
-            .queue(terminal::Clear(terminal::ClearType::CurrentLine))
-            .unwrap();
-        for j in 0..canvas_size_x / canvas.char_pix.0 {
-            stdout.queue(Print(canvas.matrix[i][j])).unwrap();
-        }
-        stdout.queue(cursor::MoveDown(1)).unwrap();
-        stdout
-            .queue(cursor::MoveLeft((canvas_size_x / 4) as u16))
-            .unwrap();
+/// Prints globe canvas to stdout, one cleared row at a time with the cursor
+/// returned to the row start, so the windowed modes can redraw in place
+/// without the alternate screen.
+fn print_canvas(canvas: &Canvas, stdout: &mut Stdout) {
+    let (w, h) = canvas.get_size();
+    let mut out = String::with_capacity(w * 4 + 16);
+    for y in 0..h {
+        out.clear();
+        out.push_str("\x1b[2K"); // Clear(CurrentLine)
+        out.extend(canvas.row(y).iter());
+        write!(out, "\x1b[1B\x1b[{}D", w).unwrap(); // MoveDown(1), MoveLeft(w)
+        stdout.write_all(out.as_bytes()).unwrap();
         stdout.flush().unwrap();
-    }
-
-    if term_size.0 / 2 > term_size.1 {
-        stdout
-            .execute(crossterm::cursor::MoveTo(
-                (canvas_size_x / canvas.char_pix.1) as u16
-                    - ((canvas_size_x / canvas.char_pix.1) / canvas.char_pix.0) as u16,
-                0,
-            ))
-            .unwrap();
     }
 }
 
