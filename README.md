@@ -1,5 +1,3 @@
-![](.github/globe_logo.png)
-
 # globe
 
 Render a globe in your terminal. Run it as a screensaver, drive it with the
@@ -9,48 +7,34 @@ mouse or keyboard, or print a still frame from your own code.
 [![Crates.io](https://img.shields.io/crates/v/globe-cli.svg)](https://crates.io/crates/globe-cli)
 [![docs.rs](https://img.shields.io/docsrs/globe)](https://docs.rs/globe)
 
-![](.github/demo-earth.gif)
-
 ```
 globe -s -c2 -n
 ```
 
 ## Demos
 
-Every clip is a real recording of the binary on a pty, decoded from braille
-dots to pixels: no screenshots, no mockups. All five are 1-bit and take under
-500 KB together — the previous single drag recording was six times that on its
-own. They are inline previews (GitHub does not autoplay video), and the
-1080p clip below is the same renderer at full resolution.
+No media is committed to this repository. The clips that used to live here were
+recorded from the real binary and are easy to reproduce:
 
-**1080p video** — [`demo-saturn-1080p.mp4`](.github/demo-saturn-1080p.mp4)
-(1920x1080, 30 fps, 3 s, 7 MB, AV1 in MP4). Every video frame is one rendered
-frame of a 960x270 character grid, which is exactly 1920x1080 braille dots, so
-one terminal dot is one video pixel: no screen capture, and the frame rate of
-the video is independent of how fast the renderer runs. `globe/examples/video.rs`
-is the generator and `docs/internals.md` has the pipeline and the codec
-trade-offs.
+- **Screensaver**: `globe -s -c2 -n` orbits earth with the night side on.
+- **Bodies**: `globe -s -c2 -t mars`, then jupiter, saturn, uranus, moon.
+- **Alphabets**: the same view with `-G braille`, `-G half` and `-G ascii`.
+- **Interactive**: `globe -i`, panned with the arrow keys and a mouse drag.
+- **Rings**: `globe -s -c2 -t saturn -z 2.4` shows the Cassini division, the
+  planet's shadow across the rings and the ring shadow across the globe.
 
-**Earth, screensaver, night side, braille** — `globe -s -c2 -n`
+For a shareable clip, `globe/examples/video.rs` renders a deterministic frame
+sequence at any size and pipes it into ffmpeg, one terminal dot per video
+pixel:
 
-![](.github/demo-earth.gif)
+```bash
+cargo run --release --example video -- saturn 90 2.4 0.25 1 0.0003 |
+  ffmpeg -f rawvideo -pixel_format gray -s 1920x1080 -framerate 30 -i - \
+         -vf gblur=sigma=1.2 -c:v libsvtav1 -preset 6 -crf 38 -pix_fmt yuv420p \
+         -g 180 saturn.mp4
+```
 
-**Switching bodies** — `globe -s -c2 -t mars` and friends
-
-![](.github/demo-bodies.gif)
-
-**The three alphabets** — braille, half blocks, ascii
-
-![](.github/demo-glyphs.gif)
-
-**Interactive mode** — arrow keys and a mouse drag — `globe -i`
-
-![](.github/demo-interactive.gif)
-
-**Saturn's rings** — the globe shading the rings and the rings shading the
-bands — `globe -s -c2 -t saturn -z 2.4`
-
-![](.github/demo-saturn.gif)
+`docs/internals.md` explains the pipeline and why the pre-filter matters.
 
 ## Features
 
