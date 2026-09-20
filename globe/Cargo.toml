@@ -1,10 +1,17 @@
 [package]
 name = "globe"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["adamsky <adamsky@enum.space>"]
 edition = "2018"
+rust-version = "1.70"
 repository = "https://github.com/adamsky/globe"
+homepage = "https://github.com/adamsky/globe"
+documentation = "https://docs.rs/globe"
 description = "Customizable ASCII globe generator."
-keywords = ["interactive", "ASCII", "globe", "terminal"]
+categories = ["graphics", "visualization"]
+keywords = ["ascii", "globe", "terminal", "rendering", "planets"]
 readme = "README.md"
 license = "GPL-3.0"
+
+[lints]
+workspace = true

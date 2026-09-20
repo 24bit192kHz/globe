@@ -2,7 +2,7 @@
   "name": "saturn",
   "cols": 1440,
   "rows": 720,
-  "note": "banded gas giant (rings are not drawn: the renderer is a sphere)",
+  "note": "banded gas giant with its ring system; the ring plane is the planet's equator, i.e. perpendicular to the globe's spin axis, which puts the camera's equatorial orbit ~17 deg above it and the sun ~21 deg above it (so the rings read as an ellipse and cast a shadow band across the bands). Set tilt_deg to 26.73 to model Saturn's actual obliquity instead",
   "day": {
     "source": "sources/saturn.jpg",
     "url": "https://www.solarsystemscope.com/textures/download/2k_saturn.jpg",
@@ -12,5 +12,14 @@
       1.0,
       99.0
     ]
+  },
+  "ring": {
+    "source": "sources/saturn_ring.png",
+    "url": "https://www.solarsystemscope.com/textures/download/2k_saturn_ring_alpha.png",
+    "inner": 1.233,
+    "outer": 2.332,
+    "tilt_deg": 0.0,
+    "samples": 512,
+    "albedo": 0.92
   }
 }

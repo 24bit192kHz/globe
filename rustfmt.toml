@@ -1,0 +1,8 @@
+# rustfmt defaults already match this repo (4-space indent, 100-col width,
+# Unix newlines, no comment rewrapping); kept explicit so CI
+# (`cargo fmt --all --check`) is hermetic across rustfmt versions.
+edition = "2018"
+max_width = 100
+hard_tabs = false
+newline_style = "Unix"
+use_small_heuristics = "default"

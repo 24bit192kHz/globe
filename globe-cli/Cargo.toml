@@ -1,11 +1,15 @@
 [package]
 name = "globe-cli"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["adamsky <adamsky@enum.space>"]
 edition = "2018"
+rust-version = "1.70"
 repository = "https://github.com/adamsky/globe"
+homepage = "https://github.com/adamsky/globe"
+documentation = "https://docs.rs/globe-cli"
 description = "Display an interactive ASCII globe in your terminal."
-keywords = ["interactive", "ASCII", "globe", "terminal", "cli"]
+categories = ["command-line-utilities", "visualization"]
+keywords = ["ascii", "globe", "terminal", "cli", "tui"]
 readme = "README.md"
 license = "GPL-3.0"
 
@@ -14,7 +18,9 @@ name = "globe"
 path = "src/main.rs"
 
 [dependencies]
-globe = { version = "0.2.0", path = "../globe" }
+globe = { version = "0.3.0", path = "../globe" }
 crossterm = "0.18.2"
 clap = { version = "3.0.0", default-features = false, features = ["std"] }
 
+[lints]
+workspace = true

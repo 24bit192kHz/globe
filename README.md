@@ -1,206 +1,264 @@
 ![](.github/globe_logo.png)
 
-Render an ASCII globe in your terminal. Make it interactive or just let it
-spin in the background.
+# globe
 
-![](.github/earth_dragging.gif)
+Render a globe in your terminal. Run it as a screensaver, drive it with the
+mouse or keyboard, or print a still frame from your own code.
 
-## Changelog
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/globe-cli.svg)](https://crates.io/crates/globe-cli)
+[![docs.rs](https://img.shields.io/docsrs/globe)](https://docs.rs/globe)
 
-v0.2.1:
-- upgraded `clap` dependency to `3.0.0`
-- changed `globe-cli` `template` argument to not be required
+![](.github/demo.gif)
 
-v0.2.0:
-- added multiple CLI arguments for setting up the scene (`refresh-rate`, 
-`globe-rotation`, `cam-rotation`, `cam-zoom`, `location`, `focus-speed`,
-`night`, `template`, `texture`, `texture-night`)
-- added experimental *listing mode* that supports reading coordinates from
-standard input and going through all of them, animating camera target changes
-(see `--pipe`)
-- enabled ability to display night side of the globe using an additional
-texture
-- changed default Earth texture (now includes New Zealand)
-- added vim-style navigation for the interactive mode
-- improved internal library representation of `Texture`
-- improved documentation
+```
+globe -s -c2 -n
+```
 
-v0.1.2
-- added clearing screen on exit
-- fixed panic when using rust version <1.45
+## Features
 
-v0.1.1
-- fixed mouse capture staying on after exit
-
-v0.1.0
-- initial release
+- **Ten bodies**: the sun, all eight planets and the moon, switchable with
+  `-t`, each with its own baked surface map. Saturn has rings.
+- **Three alphabets**: braille (default, a 2x4 dot grid per cell), half blocks
+  and the original one-glyph-per-cell ascii look.
+- **Resolution that follows your font**: each cell carries up to eight
+  independent surface samples, so a small terminal font renders a sharper
+  globe instead of a coarser one.
+- **Night side**: `-n` blends earth's city lights into the dark hemisphere.
+- **Cheap frames**: only changed cells are written, batched into runs, in one
+  write per frame.
+- **Small and quiet**: ~5 MB resident regardless of terminal size, and the
+  earth render costs around 1-3% of one core.
 
 ## Install
 
-To build `globe-cli` you will need to have 
-[Rust programming language](https://rustup.rs) installed on your machine. 
+With Rust installed ([rustup.rs](https://rustup.rs)):
 
-Use `cargo install`:
-```
+```bash
 cargo install globe-cli
 ```
 
-Or `git clone` and `cargo run --release` directly from the repository.
+From a clone of this repository:
+
+```bash
+cargo build --release
+./target/release/globe -s
+```
+
+The binary is self-contained: every texture is baked into it, so there is
+nothing to download or configure at runtime.
 
 ### AUR
 
-`globe` can be installed from available [AUR packages](https://aur.archlinux.org/packages/?O=0&SeB=b&K=globe-cli&outdated=&SB=n&SO=a&PP=50&do_Search=Go) using an [AUR helper](https://wiki.archlinux.org/index.php/AUR_helpers). For example,
+`globe` is packaged on the [AUR](https://aur.archlinux.org/packages?K=globe-cli):
 
-```
+```bash
 yay -S globe-cli
-```
-
-If you prefer, you can clone the [AUR packages](https://aur.archlinux.org/packages/?O=0&SeB=b&K=globe-cli&outdated=&SB=n&SO=a&PP=50&do_Search=Go) and then compile them with [makepkg](https://wiki.archlinux.org/index.php/Makepkg). For example,
-
-```
-git clone https://aur.archlinux.org/globe-cli.git
-cd globe-cli
-makepkg -si
 ```
 
 ### Docker
 
-You can also use Docker to try out `globe`, no Rust needed. After cloning the repo, just build and run an image from the `Dockerfile` contained at the root of the project:
 ```bash
 docker build -t globe .
 docker run -it --rm globe -s
 ```
 
-## Run
+## Usage
 
-To get a full listing of available features and options, show the `--help`
-information with:
-```
-globe -h
-```
+`globe -h` lists everything. The mode flags pick what the program does:
 
-Display a globe in *screensaver mode* using the `-s` option. 
-```
-globe -s 
-```
+| flag | mode |
+| --- | --- |
+| `-s` | screensaver: orbits the globe, any key exits |
+| `-i` | interactive: mouse and keyboard control |
+| `-p` | listing: read coordinates from stdin, walk through them |
 
-By default the globe is drawn with *braille* glyphs: every character cell
-carries a 2x4 grid of dots, so the render resolution is `8 x` the terminal
-grid and stays crisp with a very small font. `-G ascii` switches back to
-one palette glyph per cell, `-G half` uses upper/lower half blocks:
-```
-globe -s -G ascii
-globe -s -G half
+```bash
+globe -s                            # earth, orbiting, in braille
+globe -s -t mars -g10               # mars spinning on its axis
+globe -s -t saturn                  # saturn with its rings
+globe -i -t jupiter                 # drive jupiter yourself
+echo "0,0.5;0.1,0.5;0.3,0.5" | globe -p    # visit a list of coordinates
 ```
 
-Braille carries the most work per cell: 8 samples, ~4x the cpu of the old
-one-glyph render, for about half the cost per sample. `-G half` and
-`-G ascii` are progressively cheaper, and `-G ascii` alone is *lighter* than
-the old renderer at the same resolution.
+![dragging the earth with the mouse](.github/earth_dragging.gif)
 
-## Bodies
+### Interactive control
 
-`-t` picks what to render: `earth` (default), `sun`, `mercury`, `venus`,
-`moon`, `mars`, `jupiter`, `saturn`, `uranus`, `neptune`:
+In `-i` mode the mouse and these keys drive the camera:
+
+| key | action |
+| --- | --- |
+| arrows, `h` `j` `k` `l` | pan and tilt |
+| mouse drag | pan and tilt |
+| scroll, `PgUp` / `PgDn` | zoom |
+| `+` / `-` | globe rotation speed |
+| `,` / `.` | camera rotation speed |
+| `n` | toggle the night side |
+| `Enter` | recenter on the starting coordinates |
+| any other key | quit |
+
+In `-s` mode the arrow keys add spin and tilt on top of the orbit.
+
+### Alphabets
+
+`-G` picks how much each character cell carries:
+
+| value | samples per cell | looks like |
+| --- | --- | --- |
+| `braille` | 2x4 (default) | dot grid, sharpest, best with a very small font |
+| `half` | 1x2 | upper/lower half blocks |
+| `ascii` | 1x1 | one palette glyph per cell, the original look |
+
+```bash
+globe -s -G ascii      # classic ascii art globe
+globe -s -G half       # half blocks
 ```
-globe -s -t mars
-globe -i -t saturn
-```
+
+Braille carries the most work per cell: eight samples, about four times the
+cpu of the single-glyph render, at roughly half the cost per sample. `-G half`
+and `-G ascii` are progressively cheaper, and `-G ascii` is lighter than the
+single-glyph renderer this project started from.
+
+### Bodies
+
+`-t` selects what to render:
+
+| body | map | notes |
+| --- | --- | --- |
+| `earth` (default) | 1440x720 day + night | city lights on the dark side with `-n` |
+| `sun` | 1440x720 | always lit: no night map, so no terminator |
+| `mercury` | 1440x720 | cratered grey rock |
+| `venus` | 1440x720 | radar surface view |
+| `moon` | 1440x720 | maria and craters |
+| `mars` | 1440x720 | deserts and dark albedo features |
+| `jupiter` | 1440x720 | belts, zones and the great red spot |
+| `saturn` | 1440x720 + ring profile | ringed; the rings shade the globe and the globe shades the rings |
+| `uranus` | 1440x720 | faint banding |
+| `neptune` | 1440x720 | bands and the dark spot |
 
 Earth is the only body with a night side, so `-n` only changes earth. A body
-without a night map has no terminator, which is why the sun renders fully
-lit. Saturn's rings are not drawn: the globe is a sphere.
+without a night map has no terminator, which is why the sun renders fully lit.
 
-`--texture` and `--texture-night` load your own ascii map on top of the
-template:
-```
+Saturn's rings are drawn as a flat annulus in the planet's equatorial plane,
+sampled from a radial brightness/opacity profile. The renderer intersects the
+ring plane per sample, so the rings occlude the globe, the globe occludes the
+rings, the planet casts a shadow across the rings and the rings cast a shadow
+across the bands. Tilt and radii live in `tools/bodies/saturn.json`.
+
+### Custom textures
+
+`--texture` and `--texture-night` load your own ascii maps on top of the
+template. A custom day map replaces the template's maps entirely.
+
+```bash
 globe -s --texture ./my-map.txt
-```
-
-More bodies are a bake away: drop a 2:1 equirectangular image into
-`tools/sources/`, describe it in `tools/bodies/<name>.json` (the schema is in
-the baker's docstring, `python3 tools/bake_textures.py --list` shows what is
-there), bake it with `python3 tools/bake_textures.py --body <name> --fetch`,
-and add the variant to `GlobeTemplate`.
-
-It's kind of boring. Let's add some camera rotation to make it look more
-alive:
-```
-globe -sc2
-```
-
-Now let's also enable the night side and rotate the globe on its axis:
-```
-globe -snc2 -g10
-```
-
-If you want to adjust things at runtime check out the *interactive mode*.
-Here you can pan the globe around using either the mouse or keyboard arrows:
-```
-globe -i
-```
-
-Use `+` and `-` to control the globe rotation speed, `,` and `.` to control
-the camera rotation speed, `PgUp` and `PgDown` to control the camera zoom,
-`n` to toggle displaying globe's night side.
-
-Settings we used on the *screensaver mode* also work:
-```
-globe -inc2 -g10
-```
-
-Last but not least there is the *listing mode*. It allows you to pass location
-coordinates to the program and see them shown one by one on the globe.
-Currently, it only supports a very basic input format. Here's an example:
-```
-echo "0,0.5;0.1,0.5;0.3,0.5;0.5,0.5;0.7,0.5" | globe -p
-```
-
-If you're feeling creative, you can also load custom textures, like so:
-```
-globe -in --texture ./path-to-texture --texture-night ./path-to-night-texture
+globe -s -t earth --texture ./day.txt --texture-night ./night.txt
 ```
 
 ## Use the library
 
-To use `globe` within your Rust project, add it to your dependencies:
-```
+```toml
 [dependencies]
-globe = "0.2.0"
+globe = "0.3.0"
 ```
 
-First create a `Globe`:
-```
+```rust
+use globe::{CameraConfig, Canvas, GlobeConfig, GlobeTemplate};
+
 let mut globe = GlobeConfig::new()
-    .use_template(GlobeTemplate::Earth)
+    .use_template(GlobeTemplate::Saturn)
     .with_camera(CameraConfig::default())
     .build();
-```
 
-Next make a new `Canvas` and render the `Globe` onto it. The canvas is
-sized in character cells, one glyph per cell:
-```
+// the canvas is sized in character cells, one glyph per cell
 let mut canvas = Canvas::new(120, 60, None);
 globe.render_on(&mut canvas);
-```
 
-You can now print out the canvas to the terminal:
-```
 for y in 0..canvas.get_size().1 {
     let row: String = canvas.row(y).iter().collect();
     println!("{}", row);
 }
-``` 
+```
 
-See `globe-cli` code for examples of runtime changes to the `Globe` and it's
-`Camera`.
+Rendering is deterministic: given the same canvas, camera and alphabet, you
+get the same glyphs. See `globe/examples/` for runnable programs.
+
+## Textures
+
+The pipeline has three layers:
+
+- `tools/bodies/<name>.json` describes each body: source image, luminance
+  mode, gamma, optional percentile contrast stretch and output level window,
+  plus the ring profile for Saturn.
+- `tools/bake_textures.py` downloads missing sources into the gitignored
+  `tools/sources/`, quantizes them with Floyd-Steinberg dithering and writes
+  `globe/textures/<name>_hd.gidx`, a compact palette-index format that the
+  library includes at compile time.
+
+```bash
+python3 tools/bake_textures.py --list          # what is available
+python3 tools/bake_textures.py --body mars --fetch
+python3 tools/bake_textures.py --all           # rebake every body
+```
+
+- `globe/textures/*.gidx` is what ships. Rebaking is byte-reproducible, and
+  adding a body is a JSON file plus a `GlobeTemplate` variant (see
+  [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+Imagery comes from [Solar System Scope](https://www.solarsystemscope.com/textures/)
+under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+## Performance
+
+Measured with the screensaver, output drained, at two terminal sizes (peak
+RSS is `VmHWM` of the whole run):
+
+| grid | alphabet | cpu (one core) | peak RSS |
+| --- | --- | --- | --- |
+| 300x90 | ascii | 1.3% | 4.9 MB |
+| 300x90 | half | 2.7% | 4.9 MB |
+| 300x90 | braille | 8.0% | 5.0 MB |
+| 500x150 | ascii | 3.0% | 5.3 MB |
+| 500x150 | braille | 18.4% | 5.6 MB |
+
+The same ascii render used to cost 1.8% and 17.5 MB before the cell-resolution
+canvas and the baked palette-index textures; braille is the cost of eight
+samples per cell, not a regression. Saturn's ring intersection adds about 14%
+over a ringless body at the same size.
+
+## Development
+
+```bash
+cargo build --release
+cargo test --workspace
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+CI runs exactly those four gates on Linux, macOS and Windows. The library has
+no dependencies; the CLI only pulls `crossterm` and `clap`.
+
+## Contributing
+
+Bug reports, bodies, alphabets and performance work are all welcome. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, how to add a
+body end to end, and the commit conventions. By submitting a pull request you
+agree to license your contribution under GPL-3.0.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
+## License
+
+[GPL-3.0](LICENSE). This is a fork of
+[adamsky/globe](https://github.com/adamsky/globe), which is where the original
+renderer, the interactive mode and the ascii look come from.
 
 ## Credits
 
-Rendering math based on 
-[C++ code by DinoZ1729](https://github.com/DinoZ1729/Earth).
-
-Sun, planet and moon imagery from
-[Solar System Scope](https://www.solarsystemscope.com/textures/), used under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and baked into
-palette index maps by `tools/bake_textures.py`.
+- Rendering math based on [C++ code by DinoZ1729](https://github.com/DinoZ1729/Earth).
+- Sun, planet and moon imagery from
+  [Solar System Scope](https://www.solarsystemscope.com/textures/), CC BY 4.0,
+  baked into palette index maps by `tools/bake_textures.py`.

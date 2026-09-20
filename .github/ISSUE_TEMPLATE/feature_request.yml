@@ -1,0 +1,71 @@
+name: Feature request
+description: Propose a new body, glyph alphabet, or CLI feature
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Check CONTRIBUTING.md first — adding a body or a
+        glyph alphabet is a documented end-to-end recipe.
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What do you want?
+      description: The feature, in one or two sentences.
+      placeholder: A europa body baked from the USGS mosaic.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the project the feature touches.
+      options:
+        - new body / texture
+        - glyph alphabet
+        - CLI / modes
+        - renderer
+        - tooling / baker
+        - docs / other
+    validations:
+      required: true
+  - type: dropdown
+    id: glyph
+    attributes:
+      label: Glyph mode (-G)
+      description: If rendering-related, which alphabet it concerns.
+      options:
+        - braille
+        - half
+        - ascii
+        - all / not applicable
+    validations:
+      required: false
+  - type: dropdown
+    id: body
+    attributes:
+      label: Body (-t)
+      description: If body-related, which template it concerns.
+      options:
+        - earth
+        - sun
+        - mercury
+        - venus
+        - moon
+        - mars
+        - jupiter
+        - saturn
+        - uranus
+        - neptune
+        - new body / not applicable
+    validations:
+      required: false
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: How it should work, source imagery and license for new bodies, alternatives considered.
+      placeholder: Source image URL + license, expected CLI, sketch of the change.
+    validations:
+      required: false
