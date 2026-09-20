@@ -84,6 +84,20 @@ Display a globe in *screensaver mode* using the `-s` option.
 globe -s 
 ```
 
+By default the globe is drawn with *braille* glyphs: every character cell
+carries a 2x4 grid of dots, so the render resolution is `8 x` the terminal
+grid and stays crisp with a very small font. `-G ascii` switches back to
+one palette glyph per cell, `-G half` uses upper/lower half blocks:
+```
+globe -s -G ascii
+globe -s -G half
+```
+
+Braille carries the most work per cell: 8 samples, ~4x the cpu of the old
+one-glyph render, for about half the cost per sample. `-G half` and
+`-G ascii` are progressively cheaper, and `-G ascii` alone is *lighter* than
+the old renderer at the same resolution.
+
 It's kind of boring. Let's add some camera rotation to make it look more
 alive:
 ```
@@ -138,21 +152,18 @@ let mut globe = GlobeConfig::new()
     .build();
 ```
 
-Next make a new `Canvas` and render the `Globe` onto it:
+Next make a new `Canvas` and render the `Globe` onto it. The canvas is
+sized in character cells, one glyph per cell:
 ```
-let mut canvas = Canvas::new(250, 250, None);
+let mut canvas = Canvas::new(120, 60, None);
 globe.render_on(&mut canvas);
 ```
 
 You can now print out the canvas to the terminal:
 ```
-let (size_x, size_y) = canvas.get_size();
-// default character size is 4 by 8
-for i in 0..size_y / 8 {
-    for j in 0..size_x / 4 {
-        print!("{}", canvas.matrix[i][j]);
-    }
-    println!();
+for y in 0..canvas.get_size().1 {
+    let row: String = canvas.row(y).iter().collect();
+    println!("{}", row);
 }
 ``` 
 
