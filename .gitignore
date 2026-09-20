@@ -3,3 +3,10 @@
 **/target
 tools/sources/
 __pycache__/
+*.pyc
+globe/textures/*_hd.txt
+globe/textures/*_ring.txt
+.DS_Store
+*.swp
+*.orig
+*.rej

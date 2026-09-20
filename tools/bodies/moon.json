@@ -1,7 +1,7 @@
 {
   "name": "moon",
-  "cols": 1440,
-  "rows": 720,
+  "cols": 1024,
+  "rows": 512,
   "note": "cratered grey rock, no night map",
   "day": {
     "source": "sources/moon.jpg",

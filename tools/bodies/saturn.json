@@ -1,7 +1,7 @@
 {
   "name": "saturn",
-  "cols": 1440,
-  "rows": 720,
+  "cols": 1024,
+  "rows": 512,
   "note": "banded gas giant with its ring system; the ring plane is the planet's equator, i.e. perpendicular to the globe's spin axis, which puts the camera's equatorial orbit ~17 deg above it and the sun ~21 deg above it (so the rings read as an ellipse and cast a shadow band across the bands). Set tilt_deg to 26.73 to model Saturn's actual obliquity instead",
   "day": {
     "source": "sources/saturn.jpg",

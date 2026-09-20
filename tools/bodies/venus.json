@@ -1,7 +1,7 @@
 {
   "name": "venus",
-  "cols": 1440,
-  "rows": 720,
+  "cols": 1024,
+  "rows": 512,
   "note": "radar surface view (the atmosphere map is nearly featureless)",
   "day": {
     "source": "sources/venus.jpg",

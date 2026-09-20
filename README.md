@@ -9,11 +9,39 @@ mouse or keyboard, or print a still frame from your own code.
 [![Crates.io](https://img.shields.io/crates/v/globe-cli.svg)](https://crates.io/crates/globe-cli)
 [![docs.rs](https://img.shields.io/docsrs/globe)](https://docs.rs/globe)
 
-![](.github/demo.gif)
+![](.github/demo-earth.gif)
 
 ```
 globe -s -c2 -n
 ```
+
+## Demos
+
+Every clip is a real recording of the binary on a pty, decoded from braille
+dots to pixels: no screenshots, no mockups. All five are 1-bit and take under
+500 KB together — the previous single drag recording was six times that on its
+own.
+
+**Earth, screensaver, night side, braille** — `globe -s -c2 -n`
+
+![](.github/demo-earth.gif)
+
+**Switching bodies** — `globe -s -c2 -t mars` and friends
+
+![](.github/demo-bodies.gif)
+
+**The three alphabets** — braille, half blocks, ascii
+
+![](.github/demo-glyphs.gif)
+
+**Interactive mode** — arrow keys and a mouse drag — `globe -i`
+
+![](.github/demo-interactive.gif)
+
+**Saturn's rings** — the globe shading the rings and the rings shading the
+bands — `globe -s -c2 -t saturn -z 2.4`
+
+![](.github/demo-saturn.gif)
 
 ## Features
 
@@ -81,8 +109,6 @@ globe -i -t jupiter                 # drive jupiter yourself
 echo "0,0.5;0.1,0.5;0.3,0.5" | globe -p    # visit a list of coordinates
 ```
 
-![dragging the earth with the mouse](.github/earth_dragging.gif)
-
 ### Interactive control
 
 In `-i` mode the mouse and these keys drive the camera:
@@ -115,6 +141,62 @@ globe -s -G ascii      # classic ascii art globe
 globe -s -G half       # half blocks
 ```
 
+The same view of mars in each alphabet, straight out of the renderer:
+
+```
+globe -s -t mars -G ascii -z 1.25
+          .;;,,w,,,,ww,,,,,wwwwwwww,wwwiwwwwwww,,,'',''','w';.
+  .      .;',,,,w,,,,,,w,www,ww,,,,,w,,,,,wiiw,',,,,,,',;;''';.
+         :;,,'',,',,'',,,,,,,,,,,,,www,www,iw,',,,,;,,,,:;:;,':
+        .;,':;,,',,,'',,''''',,,,,,,,,w,ww,w,',,,',,,,,,,''',,;.
+       .:';;;,,;',ww,,,wwwiww,w',,,,''''ww,'',,,''',',','',w'';:  .
+.... . .;';,,',oooooiiiooiiww,,',,,,,,,,,,,,''''''''w,,',wwww,;;.
+  ..   .;;;,,,iioogooooooooiwiw,'',,,,',,,,,''''',,,,,,w,w,,ww,:.
+ .     .;,,',iwioooggOggooooiww,',,,,''''','','','w','',,ww,,,,:.
+       .:''',,iiiooooooggooii,,,,,,,,,,','',',,',',''',,,iwww,;;.
+        :',,',wiiiiooooiiiww,,,,,,,,,,,','',,,''''',',',wiw,,w':.
+    .   .:,,,',wwiiiiiwwiiww,'',,,,,,,,,''''',,,'',',,www,w,w,;: .     .
+        .:',,'',,wwwiwwwww,,,',',,,,',,,''',,,'',,,''w,wwwwiww;.. ..   .
+         .;;,,,,',,',,,,,,,,'',,,,,,,'',,:,''',,,,,,,,wwwwww';.  ..
+          .:;,,,'''','''''''',,,,,,,,:',,'',ww',,,,,,,,,www,;.      .  .
+```
+
+```
+globe -s -t mars -G half -z 1.25
+          ▀   ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀     ▀
+    ▄ ▀     ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀ ▀▄▀▄▀ ▀▄▀ ▀ ▀ ▀ ▀
+ ▀          ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀ ▀   ▀ ▀       ▀
+    ▀  ▄  ▀ ▀ ▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀
+          ▀   ▀ ▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀   ▀ ▀
+ ▀ ▄     ▄▀ ▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀▄▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀▄     ▄
+ ▄     ▀  ▀ ▀ ▀▄▀▄▀▄▀ ▀▄▀▄▀▄▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀  ▄
+     █▀▀▀ ▀ ▀▄▀▄▀▄▀▄▀█▀▄▀▄▀▄▀▄▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀ ▀▄▀ ▀▄▀
+          ▀ ▀ ▀▄▀ ▀▄▀▄▀▄▀▄▀▄▀ ▀ ▀ ▀ ▀ ▀   ▀ ▀ ▀   ▀ ▀ ▀▄▀ ▀ ▀ ▀   ▀▀
+          ▀ ▀▄▀ ▀▄▀▄▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀▄▀ ▀▄
+  ▄       ▀ ▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀▄▀     ▀
+            ▀ ▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀▄▀ ▀  ▀ ▀ ▄ ▀▀
+            ▀ ▀   ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀   ▀ ▀ ▀ ▀ ▀   ▀ ▀ ▀▄▀ ▀ ▀
+            ▀ ▀ ▀ ▀ ▀▄▀ ▀▄▀ ▀ ▀ ▀▄▀ ▀   ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀ ▀▄▀       ▀ ▀█
+```
+
+```
+globe -s -t mars -G braille -z 1.25
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠰⠀⠀⠅⠕⠅⠕⠅⠕⠅⠕⠅⠕⠅⠅⠅⠕⠅⠕⠅⠕⢅⠕⠅⠕⠅⠕⠅⠕⢅⠕⠅⠕⠕⠕⠅⠕⠅⠅⠅⠕⠅⠅⠅⠕⠅⠁⠅⠕⢴⠀⠀⠀⠀⠐⠀⠀⠀⠀⠀⠀⠀
+⠁⠀⠀⠀⠀⠀⠀⠈⠀⠄⠀⠀⠕⠅⠕⠅⠕⠅⠕⠅⠕⠅⠕⠅⠕⢕⠕⢅⠕⠅⠕⠅⠕⠅⠕⢅⠕⢅⠕⠅⠅⠅⠕⢅⠕⠅⠕⠅⠕⠅⠕⠅⠑⠅⠕⠅⠅⠅⠅⠅⠄⠀⠈⠀⠀⠀⠀⠁⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡀⠅⠅⠅⠕⠅⠁⠅⠕⠅⠁⠅⠕⠅⠅⠅⠕⠅⠕⠅⠅⠅⠕⠅⠕⢅⠕⠅⠕⠅⠕⠅⠕⢅⠅⠅⠅⠅⠅⠅⠕⠅⠅⠅⠕⠅⠁⠀⠁⠅⠅⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠁⠀⠀⠀⢀⠀⠄⠅⠁⠅⠑⠅⠕⠅⠅⠅⠅⠅⠕⠅⠅⢅⠅⠅⠅⠅⠕⠅⠕⠅⠅⠅⠕⠅⠕⠅⠕⢅⠕⠅⠕⠅⠕⠅⠕⠅⠕⠅⠅⠅⠕⠅⠅⠅⠕⢅⠅⠅⠀⠀⠁⠐⠁⠀⠀⠀⠀⠀
+⠀⢄⠀⠁⠀⠀⠀⠀⠀⠀⠅⠅⠁⠄⠅⢅⠁⢅⠕⢅⠅⢅⠕⢅⠕⢅⠕⠅⠅⠅⠕⠅⠁⠅⠅⠅⠁⠅⠅⢅⠅⠅⠅⠅⠅⠅⠕⠅⠅⠅⠕⠅⠁⠅⠅⠅⠁⠅⠕⢅⠅⠅⠀⠐⠁⠀⢀⠀⠀⠀⠀⠀
+⠁⠅⠔⢔⠄⢅⠀⠄⠔⠀⠅⠅⠕⠅⠕⢕⢕⢕⠕⢅⠕⢕⠕⢕⠕⢅⠕⢅⠕⢅⠅⠅⠅⠅⠕⠅⠕⠅⠕⠅⠕⠅⠕⠅⠅⠅⠅⠅⠕⠅⠅⠅⠕⠅⠅⠅⠕⢅⠕⠅⠕⠅⠅⠈⢀⠀⠀⠀⠄⠀⠀⠀
+⢄⢄⠀⠈⠁⠀⠐⠈⠁⠁⠁⠅⠅⠅⠕⢕⠕⢕⢕⢕⢕⢕⢕⢕⠕⢕⢕⢕⠕⠅⠕⠅⠅⠅⠕⠅⠅⠅⠅⠅⠁⠅⠕⠅⠁⠅⠅⠅⠅⠅⠕⠅⠁⠅⠕⢅⠅⢅⠕⠅⠅⠅⠅⠀⠀⠀⢀⠀⢀⢀⠀⠐
+⠁⠀⠑⠕⠀⠄⠑⢅⠀⠄⠕⠅⠕⢅⠕⢅⢕⢕⠕⢕⢝⢕⢕⢕⢝⢕⠕⢅⠕⢅⠕⠅⠅⠅⠕⠅⠕⠅⠅⠅⠕⠅⠅⠅⠕⠅⠅⠅⠅⠅⠕⠅⠕⠅⠅⢅⢕⢅⠕⠅⠕⠅⠅⠐⠀⠀⠀⠀⠀⠀⠀⢀
+⠀⠀⠀⠁⠀⠀⠀⠀⠀⠀⠅⠅⠅⠅⠕⢕⠕⢕⠕⢕⠕⢕⢝⢕⠕⢕⢕⢕⠕⠅⠕⠅⠅⠅⠕⠅⠅⠅⠕⠅⠁⠅⠅⠅⠅⠅⠕⠅⠁⠅⠕⠅⠅⠅⠅⢅⠕⠅⠕⢅⠅⠅⠅⠐⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠄⠀⠀⠀⠀⠁⠀⠀⠀⠕⠅⠕⢅⠕⢕⠕⢕⠕⢕⠕⢕⠕⢕⠕⢕⠕⠅⠕⠅⠅⠅⠕⠅⠕⠅⠕⠅⠕⠅⠅⠅⠅⠅⠕⠅⠅⠅⠅⠅⠅⠅⠕⠅⠕⢅⠕⢅⠕⠅⠕⢅⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠠⠁⠈⠀⠀⠀⠀⠑⠅⠅⠅⠕⠕⠕⠅⠕⢕⠕⠅⠕⢕⠕⠅⠕⠅⠅⠅⠅⠅⠅⠅⠕⠅⠅⠅⠕⠅⠁⠅⠅⠅⠁⠅⠕⠅⠁⠅⠕⠅⠁⠅⠕⢅⠕⠅⠕⢅⠕⠅⠀⠀⠀⠀⠀⠀⠀⠄⠀⠀
+⠀⠐⠀⠅⠀⠀⠀⠀⠀⠀⠀⠅⠕⠅⠅⠅⠕⠅⠕⢅⠕⢅⠕⢅⠕⠅⠕⠅⠕⠅⠅⠅⠕⠅⠕⠅⠅⠅⠅⠅⠅⠅⠅⠅⠕⠅⠅⠅⠕⠅⠕⠅⠕⠅⠕⢅⠕⢅⠕⢅⠕⠉⠑⠀⠐⠤⠅⠁⢁⢕⢕⠠
+⠀⠀⠀⠀⠄⠀⠀⠀⠀⠀⠀⠀⠅⠅⠕⠅⠅⠅⠕⠅⠁⠅⠕⠅⠕⠅⠕⠅⠅⠅⠕⠅⠅⠅⠕⠅⠅⠄⠅⠅⠁⠅⠕⠅⠅⠅⠅⠅⠁⠅⠅⠅⠁⠅⠕⠅⠕⠅⠕⢅⠁⠅⠄⠤⠁⢀⠄⠄⠀⠀⢀⠁
+⠀⠀⠀⠈⠀⢀⠀⠀⠢⠀⠐⠄⠁⠅⠅⠅⠕⠅⠅⠅⠅⠅⠅⠅⠅⠅⠅⠅⠅⠅⠅⠅⠕⠅⠕⠅⠕⠅⠁⢅⠅⠅⠕⠅⠕⠅⠕⠅⠕⠅⠅⠅⠕⠅⠕⢅⠕⢅⠕⠁⠁⠁⠀⠀⠀⠄⠀⠄⠈⠡⠕⠱
+```
+
 Braille carries the most work per cell: eight samples, about four times the
 cpu of the single-glyph render, at roughly half the cost per sample. `-G half`
 and `-G ascii` are progressively cheaper, and `-G ascii` is lighter than the
@@ -126,16 +208,16 @@ single-glyph renderer this project started from.
 
 | body | map | notes |
 | --- | --- | --- |
-| `earth` (default) | 1440x720 day + night | city lights on the dark side with `-n` |
-| `sun` | 1440x720 | always lit: no night map, so no terminator |
-| `mercury` | 1440x720 | cratered grey rock |
-| `venus` | 1440x720 | radar surface view |
-| `moon` | 1440x720 | maria and craters |
-| `mars` | 1440x720 | deserts and dark albedo features |
-| `jupiter` | 1440x720 | belts, zones and the great red spot |
-| `saturn` | 1440x720 + ring profile | ringed; the rings shade the globe and the globe shades the rings |
-| `uranus` | 1440x720 | faint banding |
-| `neptune` | 1440x720 | bands and the dark spot |
+| `earth` (default) | 1024x512 day + night | city lights on the dark side with `-n` |
+| `sun` | 1024x512 | always lit: no night map, so no terminator |
+| `mercury` | 1024x512 | cratered grey rock |
+| `venus` | 1024x512 | radar surface view |
+| `moon` | 1024x512 | maria and craters |
+| `mars` | 1024x512 | deserts and dark albedo features |
+| `jupiter` | 1024x512 | belts, zones and the great red spot |
+| `saturn` | 1024x512 + ring profile | ringed; the rings shade the globe and the globe shades the rings |
+| `uranus` | 1024x512 | faint banding |
+| `neptune` | 1024x512 | bands and the dark spot |
 
 Earth is the only body with a night side, so `-n` only changes earth. A body
 without a night map has no terminator, which is why the sun renders fully lit.
@@ -202,9 +284,11 @@ python3 tools/bake_textures.py --body mars --fetch
 python3 tools/bake_textures.py --all           # rebake every body
 ```
 
-- `globe/textures/*.gidx` is what ships. Rebaking is byte-reproducible, and
-  adding a body is a JSON file plus a `GlobeTemplate` variant (see
-  [CONTRIBUTING.md](CONTRIBUTING.md)).
+- `globe/textures/*.gidx` is what ships: 11 maps, 5.6 MB total, at 1024x512
+  palette indices. The two earth source JPEGs are committed because they are
+  not on the CDN; every other source is fetched on demand into the gitignored
+  `tools/sources/`. Rebaking is reproducible, and adding a body is a JSON file
+  plus a `GlobeTemplate` variant (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 Imagery comes from [Solar System Scope](https://www.solarsystemscope.com/textures/)
 under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
@@ -212,20 +296,54 @@ under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 ## Performance
 
 Measured with the screensaver, output drained, at two terminal sizes (peak
-RSS is `VmHWM` of the whole run):
+RSS is `VmHWM` over the whole run, earth's map, one core):
 
-| grid | alphabet | cpu (one core) | peak RSS |
-| --- | --- | --- | --- |
-| 300x90 | ascii | 1.3% | 4.9 MB |
-| 300x90 | half | 2.7% | 4.9 MB |
-| 300x90 | braille | 8.0% | 5.0 MB |
-| 500x150 | ascii | 3.0% | 5.3 MB |
-| 500x150 | braille | 18.4% | 5.6 MB |
+| grid | alphabet | samples per cell | cpu | peak RSS |
+| --- | --- | --- | --- | --- |
+| 300x90 | ascii | 1 | 1.2% | 4.7 MB |
+| 300x90 | half | 2 | 2.6% | 4.7 MB |
+| 300x90 | braille | 8 | 8.0% | 4.9 MB |
+| 500x150 | ascii | 1 | 3.0% | 5.0 MB |
+| 500x150 | half | 2 | 6.1% | 5.1 MB |
+| 500x150 | braille | 8 | 19.2% | 5.3 MB |
 
-The same ascii render used to cost 1.8% and 17.5 MB before the cell-resolution
-canvas and the baked palette-index textures; braille is the cost of eight
-samples per cell, not a regression. Saturn's ring intersection adds about 14%
-over a ringless body at the same size.
+Cost tracks samples per cell, not terminal size: braille is eight times the
+work of ascii for eight times the resolution, and the same ascii render used
+to cost 1.8% and 17.5 MB before the cell-resolution canvas and the baked
+palette-index maps. Saturn's ring intersection adds about 14% over a ringless
+body at the same size, and no measurable memory.
+
+## How it works
+
+One ray per sub-cell sample. The ray grid is folded once per frame into a
+separable basis (`dir = vx * gx + vy * gy + v0`), so a sample costs a handful
+of multiplies; the sphere test uses a scaled discriminant, which keeps every
+sign exact without normalising the ray; and lighting needs no second square
+root because the sun is effectively at infinity. Sub-cell samples are
+ordered-dithered with a Bayer 8x8 matrix into whatever glyph the alphabet
+wants: 1x1 palette glyphs for `ascii`, 1x2 half blocks, 2x4 braille dots. The
+three alphabets therefore carry 1, 2 and 8 samples per cell, which is what
+makes a very small terminal font render a sharper globe rather than a
+coarser one.
+
+Textures are baked ahead of time into palette indices and `include_bytes!`d,
+so startup parses nothing and a texel fetch is one indexed load. Saturn's
+rings are a radial `(brightness, opacity)` profile ray traced against the
+ring plane, which is also why the planet can shade the rings and the rings
+can shade the bands. `docs/internals.md` walks through the math, the file
+formats and the cost model in detail.
+
+## Keeping it light
+
+- The eleven shipped maps are 1024x512 palette indices, 5.6 MB total, baked
+  into the 7 MB binary. Nothing is downloaded or parsed at runtime.
+- Resident memory is about 4.6 MB in ascii, 4.9 MB in braille, at any
+  terminal size: the canvas, one glyph per cell, is the only per-frame state.
+- Only changed cells are written, batched into runs, one write and one flush
+  per frame.
+- Want it lighter still? `-G half` or `-G ascii` cut the sample count, and
+  `python3 tools/bake_textures.py --all --cols 720 --rows 360` rebuilds
+  smaller maps if you want to trade texels for bytes.
 
 ## Development
 

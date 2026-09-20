@@ -1,7 +1,7 @@
 {
   "name": "mars",
-  "cols": 1440,
-  "rows": 720,
+  "cols": 1024,
+  "rows": 512,
   "note": "red desert with dark albedo features",
   "day": {
     "source": "sources/mars.jpg",

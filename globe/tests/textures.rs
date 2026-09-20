@@ -3,7 +3,7 @@
 use globe::{Canvas, GlobeConfig, GlobeTemplate, Glyph, Texture};
 
 const PALETTE: &str = " .:;',wiogOLXHWYV@";
-const MAP_SIZE: (usize, usize) = (1440, 720);
+const MAP_SIZE: (usize, usize) = (1024, 512);
 
 /// Every body ships a baked map of the same size and palette, and it parses:
 /// a corrupt or missing map would panic here instead of at the first frame.
