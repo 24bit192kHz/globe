@@ -3,3 +3,11 @@ members = [
     "globe",
     "globe-cli",
 ]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+dbg_macro = "warn"
+todo = "warn"

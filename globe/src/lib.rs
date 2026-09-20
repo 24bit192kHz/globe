@@ -11,6 +11,12 @@
 //! render resolution is `sub() x terminal cells`: the smaller the terminal
 //! font gets, the finer the globe, while the cost stays one ray per sample
 //! and one byte of state per sample.
+//!
+//! Bodies come from [`GlobeTemplate`]: each carries baked day and night maps,
+//! and Saturn carries a [`Ring`] profile. Ring systems are ray traced as a
+//! flat annulus in the planet's equatorial plane: the ring hides the globe,
+//! the globe hides the ring, the planet casts a shadow across the rings and
+//! the rings cast a shadow across the bands.
 
 use std::borrow::Cow;
 use std::f32::consts::PI;
@@ -47,9 +53,9 @@ const CORE: Float = 0.06;
 /// `(x, y)` lights its dot when its brightness exceeds
 /// `(BAYER8[(y % 8) * 8 + x % 8] + 0.5) / 64`.
 const BAYER8: [u8; 64] = [
-    0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38,
-    60, 28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25,
-    15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
+    0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60,
+    28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15,
+    47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
 ];
 
 /// Braille dot bit for sub-cell `(column, row)` in the 8-dot layout.
@@ -205,6 +211,130 @@ impl Baked {
     /// Palette glyphs: level `i` renders as `palette()[i]`.
     pub fn palette(&self) -> &[char] {
         &self.palette
+    }
+}
+
+/// Baked ring profile: a radial strip of `(brightness, opacity)` samples.
+///
+/// Layout, little endian: magic `RING1\n`, sample count u32, inner radius
+/// f32, outer radius f32, tilt f32 in radians, then one `(brightness,
+/// opacity)` byte pair per radial sample, inner edge first. Radii are in
+/// planet radii, so the renderer scales them by the globe radius. The tilt
+/// is the planet's obliquity: the ring plane is the planet's equatorial
+/// plane, so the same rotation also tilts the surface texture.
+pub struct Ring {
+    inner: Float,
+    outer: Float,
+    tilt: Float,
+    profile: &'static [u8],
+}
+
+impl Ring {
+    /// Parses a ring profile, panicking on a malformed file.
+    pub fn parse(data: &'static [u8]) -> Self {
+        assert!(
+            data.len() >= 22 && &data[..6] == RING_MAGIC,
+            "not a RING1 profile"
+        );
+        let count = u32::from_le_bytes([data[6], data[7], data[8], data[9]]) as usize;
+        let inner = Float::from_le_bytes([data[10], data[11], data[12], data[13]]);
+        let outer = Float::from_le_bytes([data[14], data[15], data[16], data[17]]);
+        let tilt = Float::from_le_bytes([data[18], data[19], data[20], data[21]]);
+        assert!(
+            count > 1 && data.len() >= 22 + 2 * count && inner > 0. && outer > inner,
+            "truncated RING1 profile"
+        );
+        Self {
+            inner,
+            outer,
+            tilt,
+            profile: &data[22..22 + 2 * count],
+        }
+    }
+
+    /// Inner radius, in planet radii.
+    pub fn inner(&self) -> Float {
+        self.inner
+    }
+
+    /// Outer radius, in planet radii.
+    pub fn outer(&self) -> Float {
+        self.outer
+    }
+
+    /// Obliquity in radians: the ring plane normal tilts this far from `+z`.
+    pub fn tilt(&self) -> Float {
+        self.tilt
+    }
+
+    /// Number of radial samples.
+    pub fn count(&self) -> usize {
+        self.profile.len() / 2
+    }
+
+    /// `(brightness, opacity)` of sample `i`, both in `0.0 ..= 1.0`.
+    #[inline(always)]
+    fn sample(&self, i: usize) -> (Float, Float) {
+        (
+            self.profile[2 * i] as Float * (1.0 / 255.0),
+            self.profile[2 * i + 1] as Float * (1.0 / 255.0),
+        )
+    }
+}
+
+/// Magic of a baked ring profile.
+const RING_MAGIC: &[u8; 6] = b"RING1\n";
+
+/// One frame's ring geometry and profile lookup.
+struct RingGeom<'a> {
+    ring: &'a Ring,
+    /// Unit normal of the ring plane (the planet's spin axis).
+    axis: [Float; 3],
+    /// Radii in world units (planet radii times the globe radius).
+    inner: Float,
+    outer: Float,
+    /// `1 / (outer - inner)`, world units.
+    inv_span: Float,
+    /// Squared globe radius, for the planet's shadow test.
+    r2: Float,
+}
+
+impl RingGeom<'_> {
+    /// Where a ray crosses the ring plane, inside the annulus.
+    ///
+    /// Returns the crossing point, ring brightness, ring opacity and the
+    /// distance along `d`. `d` must be normalized.
+    #[inline(always)]
+    fn cross(&self, o: &[Float; 3], d: &[Float; 3]) -> Option<([Float; 3], Float, Float, Float)> {
+        let along = dot(d, &self.axis);
+        if along.abs() < 1e-9 {
+            return None; // parallel to the ring plane
+        }
+        let t = -dot(o, &self.axis) / along;
+        if t <= 0. {
+            return None; // the plane is behind the camera
+        }
+        let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
+        // the crossing point lies in the plane, so its length is the radius
+        let rho2 = dot(&p, &p);
+        if rho2 < self.inner * self.inner || rho2 > self.outer * self.outer {
+            return None;
+        }
+        let u = (rho2.sqrt() - self.inner) * self.inv_span;
+        let last = self.ring.count() - 1;
+        let i = ((u * last as Float) as usize).min(last);
+        let (brightness, opacity) = self.ring.sample(i);
+        Some((p, brightness, opacity, t))
+    }
+
+    /// True when the globe itself blocks the sun from this ring point: the
+    /// planet casts a shadow across the rings.
+    #[inline(always)]
+    fn in_planet_shadow(&self, p: &[Float; 3]) -> bool {
+        // |p + s * SUN|^2 = r^2 has a positive root in front of the point
+        let b = dot(p, &SUN);
+        let disc = b * b - (dot(p, p) - self.r2);
+        disc >= 0. && (-b - disc.sqrt()) > 0.
     }
 }
 
@@ -365,6 +495,8 @@ pub struct Globe {
     pub frame: u64,
     /// Sub-cell glyph alphabet, see [`Glyph`].
     pub glyph: Glyph,
+    /// Ring system, for bodies that have one.
+    pub ring: Option<Ring>,
 }
 
 impl Globe {
@@ -387,14 +519,14 @@ impl Globe {
         for cy in 0..dh {
             let gy0 = (cy * sy) as Float;
             let row = &mut canvas.matrix[cy * dw..cy * dw + dw];
-            for cx in 0..dw {
+            for (cx, cell) in row.iter_mut().enumerate() {
                 let gx0 = (cx * sx) as Float;
                 let (ch, target) = if ascii {
                     f.ascii_cell(gx0, gy0)
                 } else {
                     (f.block_cell(cx, cy, gx0, gy0), false)
                 };
-                row[cx] = if target { fade(row[cx], ch) } else { ch };
+                *cell = if target { fade(*cell, ch) } else { ch };
             }
         }
     }
@@ -428,6 +560,14 @@ struct Frame<'a> {
     qz: Int,
     /// Globe spin.
     angle: Float,
+    /// Ring system, when the body has one.
+    ring: Option<RingGeom<'a>>,
+    /// Obliquity: cos/sin of the tilt between `+z` and the planet's axis.
+    /// The surface texture is looked up in the planet frame, so rings and
+    /// the bands they shade share one axis.
+    tilt_cos: Float,
+    tilt_sin: Float,
+    tilted: bool,
 }
 
 impl<'a> Frame<'a> {
@@ -463,6 +603,10 @@ impl<'a> Frame<'a> {
         ];
 
         let r = g.radius;
+        let (tilt_cos, tilt_sin) = match &g.ring {
+            Some(ring) => (ring.tilt().cos(), ring.tilt().sin()),
+            None => (1., 0.),
+        };
         Self {
             tex: &g.texture,
             night: g.display_night,
@@ -482,6 +626,34 @@ impl<'a> Frame<'a> {
             qx: (ox * (26. + 22. * 1.5) * 8. / 10.) as Int,
             qz: (oz * (26. + 22. * 1.5) * 8. / 10.) as Int,
             angle: g.angle,
+            ring: g.ring.as_ref().map(|ring| RingGeom {
+                ring,
+                // the ring plane normal is the spin axis, tilted from +z
+                axis: [0., -ring.tilt().sin(), ring.tilt().cos()],
+                inner: ring.inner() * r,
+                outer: ring.outer() * r,
+                inv_span: 1. / ((ring.outer() - ring.inner()) * r),
+                r2: r * r,
+            }),
+            tilt_cos,
+            tilt_sin,
+            tilted: g.ring.as_ref().is_some_and(|r| r.tilt() != 0.),
+        }
+    }
+
+    /// Surface point in the planet frame. The texture pole is the spin axis,
+    /// so a tilted planet has its bands parallel to its rings.
+    #[inline(always)]
+    fn planet_frame(&self, p: &[Float; 3]) -> [Float; 3] {
+        if self.tilted {
+            // undo the obliquity: rotate about x by -tilt
+            [
+                p[0],
+                p[1] * self.tilt_cos + p[2] * self.tilt_sin,
+                -p[1] * self.tilt_sin + p[2] * self.tilt_cos,
+            ]
+        } else {
+            *p
         }
     }
 
@@ -514,7 +686,7 @@ impl<'a> Frame<'a> {
         // in range by construction: texel() clamps to the texture size
         let i = ey * self.tex.size.0 + ex;
         let day = self.tex.day[i] as Float;
-        match (&self.tex.night, self.night) {
+        let mut level = match (&self.tex.night, self.night) {
             (Some(night), true) => {
                 // luminance: dot(surface normal, light). The sun sits a
                 // million radii away, so the light direction from any
@@ -527,13 +699,22 @@ impl<'a> Frame<'a> {
                 ((1.0 - lum) * n + lum * day).min(self.max_level)
             }
             _ => day,
+        };
+        // the rings shade the globe: whatever light the ring intercepts on
+        // its way to this surface point is lost
+        if let Some(ring) = &self.ring {
+            if let Some((_, _, opacity, _)) = ring.cross(p, &SUN) {
+                level *= 1.0 - opacity;
+            }
         }
+        level
     }
 
     /// Texel coordinates of a surface point.
     #[inline(always)]
     fn texel(&self, p: &[Float; 3]) -> (usize, usize) {
         let (tex_w, tex_h) = self.tex.size;
+        let p = self.planet_frame(p);
         let phi = (-p[2] * self.inv_r * 0.5 + 0.5).clamp(0.0, 1.0);
         let mut theta = p[1].atan2(p[0]) / (2. * PI) + 0.5 + self.angle / 2. / PI;
         theta -= theta.floor();
@@ -562,6 +743,7 @@ impl<'a> Frame<'a> {
             // font size. closest^2 = r^2 - discriminant; t = -dot_uo > 0
             // faces the globe.
             let t = -dot_uo;
+            let mut surface: Option<Float> = None; // palette level, coverage thinned
             if t > 0. {
                 let miss = (self.r * self.r - discriminant).sqrt() - self.r;
                 // one *cell* steps u by ~1/(2 * half_height) of the cell
@@ -574,11 +756,26 @@ impl<'a> Frame<'a> {
                     let (ex, ey) = self.unit_texel(&p);
                     let i = ey * self.tex.size.0 + ex;
                     let idx = *self.tex.day.get(i).unwrap_or(&0) as Float;
-                    let thin = ((idx * coverage) as usize).min(palette.len() - 1);
-                    return (palette[thin], false);
+                    surface = Some((idx * coverage).min(self.max_level));
                 }
             }
-            return (sky_ascii(&u, self.qx, self.qz), true);
+            return match surface {
+                // the fringe point sits at the closest approach, distance t
+                Some(level) => {
+                    let level = self.with_ring_level(level, &u, Some(t));
+                    (palette[(level as usize).min(palette.len() - 1)], false)
+                }
+                // pure sky, unless the rings cover the cell: ring matter is
+                // written directly like the globe, so its structure survives
+                // instead of crossfading down to a single dim step
+                None => {
+                    let sky = sky_ascii(&u, self.qx, self.qz);
+                    match self.ring_sky(sky, &u) {
+                        Some(ch) => (ch, false),
+                        None => (sky, true),
+                    }
+                }
+            };
         }
 
         // globe surface: single centre sample, direct write
@@ -589,13 +786,54 @@ impl<'a> Frame<'a> {
             oz + distance * u[2],
         ];
         let level = self.level(&p);
+        let level = self.with_ring_level(level, &u, Some(distance));
         (palette[(level as usize).min(palette.len() - 1)], false)
+    }
+
+    /// Blends a ring crossing into a surface sample, in palette level space.
+    /// `hit` is the surface distance along `u`: the ring only covers it when
+    /// it crosses the plane nearer than that.
+    #[inline(always)]
+    fn with_ring_level(&self, level: Float, u: &[Float; 3], hit: Option<Float>) -> Float {
+        let ring = match &self.ring {
+            Some(ring) => ring,
+            None => return level,
+        };
+        match ring.cross(&self.o, u) {
+            Some((p, brightness, opacity, t)) if hit.is_some_and(|h| t < h) => {
+                let brightness = if ring.in_planet_shadow(&p) {
+                    0.
+                } else {
+                    brightness
+                };
+                brightness * opacity * self.max_level + level * (1.0 - opacity)
+            }
+            _ => level,
+        }
+    }
+
+    /// Ring crossing for a ray that missed the globe, composited against the
+    /// sky in ramp space (so faint rings let stars through). `None` when the
+    /// ray crosses no ring matter at all.
+    #[inline(always)]
+    fn ring_sky(&self, sky: char, u: &[Float; 3]) -> Option<char> {
+        let ring = self.ring.as_ref()?;
+        let (p, brightness, opacity, _) = ring.cross(&self.o, u)?;
+        let brightness = if ring.in_planet_shadow(&p) {
+            0.
+        } else {
+            brightness
+        };
+        let background = ramp_idx(sky).unwrap_or(0) as Float / 6.;
+        let mixed = (brightness * opacity + background * (1.0 - opacity)).clamp(0., 1.);
+        Some(RAMP[(mixed * 6.).round() as usize])
     }
 
     /// Texel coordinates of a point on the unit sphere (legacy fringe).
     #[inline]
     fn unit_texel(&self, p: &[Float; 3]) -> (usize, usize) {
         let (tex_w, tex_h) = self.tex.size;
+        let p = self.planet_frame(p);
         let phi = (-p[2] * 0.5 + 0.5).clamp(0.0, 1.0);
         let mut theta = p[1].atan2(p[0]) / (2. * PI) + 0.5 + self.angle / 2. / PI;
         theta -= theta.floor();
@@ -615,10 +853,15 @@ impl<'a> Frame<'a> {
         for iy in 0..sy {
             let y = (cy * sy + iy) & 7;
             let y0 = gy0 + iy as Float;
-            for ix in 0..sx {
+            for (ix, bit) in BRAILLE_BITS
+                .iter()
+                .map(|column| column[iy])
+                .take(sx)
+                .enumerate()
+            {
                 let d = self.dir(gx0 + ix as Float, y0);
                 if self.brightness(&d) > bayer(cx * sx + ix, y) {
-                    mask |= BRAILLE_BITS[ix][iy];
+                    mask |= bit;
                 }
             }
         }
@@ -626,19 +869,50 @@ impl<'a> Frame<'a> {
     }
 
     /// Sub-cell sample brightness in `0.0 ..= 1.0`: globe surface when the
-    /// ray hits, sky otherwise.
+    /// ray hits, ring when the ray crosses the ring plane inside the
+    /// annulus in front of it, sky otherwise.
     #[inline(always)]
     fn brightness(&self, d: &[Float; 3]) -> Float {
         let (l2, d_o, disc) = self.geom(d);
         if disc < 0. {
             let inv = 1.0 / l2.sqrt();
             let u = [d[0] * inv, d[1] * inv, d[2] * inv];
-            return sky_brightness(&u, self.qx, self.qz);
+            let mut value = sky_brightness(&u, self.qx, self.qz);
+            // the ring can only be in front of the sky
+            if let Some(ring) = &self.ring {
+                if let Some((p, brightness, opacity, _)) = ring.cross(&self.o, &u) {
+                    let brightness = if ring.in_planet_shadow(&p) {
+                        0.
+                    } else {
+                        brightness
+                    };
+                    value = brightness * opacity + value * (1.0 - opacity);
+                }
+            }
+            return value;
         }
         let t = (-d_o - disc.sqrt()) / l2;
         let o = self.o;
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
-        self.level(&p) / self.max_level
+        let mut value = self.level(&p) / self.max_level;
+        if let Some(ring) = &self.ring {
+            // ring distances are measured along the normalized ray, the
+            // surface hit along the unnormalized one
+            let l = l2.sqrt();
+            let inv = 1.0 / l;
+            let u = [d[0] * inv, d[1] * inv, d[2] * inv];
+            if let Some((rp, brightness, opacity, rt)) = ring.cross(&o, &u) {
+                if rt < t * l {
+                    let brightness = if ring.in_planet_shadow(&rp) {
+                        0.
+                    } else {
+                        brightness
+                    };
+                    value = brightness * opacity + value * (1.0 - opacity);
+                }
+            }
+        }
+        value
     }
 }
 
@@ -659,9 +933,7 @@ fn sky_hash(u: &[Float; 3], qx: Int, qz: Int) -> (u32, u32, Float) {
     let iz = u[2] - SUN[2] * dot(u, &SUN);
     let mut h: u32 = ((u[1] * 997. + 0.5) as i32 as u32)
         .wrapping_mul(2246822519)
-        .wrapping_add(
-            ((u[0] * 571. + u[2] * 911. + 0.5) as i32 as u32).wrapping_mul(3266489917),
-        );
+        .wrapping_add(((u[0] * 571. + u[2] * 911. + 0.5) as i32 as u32).wrapping_mul(3266489917));
     h = (h ^ (h >> 15)).wrapping_mul(2654435761);
     h ^= h >> 13;
     let depth = (h >> 27) & 3;
@@ -824,6 +1096,7 @@ pub struct GlobeConfig {
     template: Option<GlobeTemplate>,
     day: Option<ImageSource>,
     night: Option<ImageSource>,
+    ring: Option<Ring>,
     palette: Option<Vec<char>>,
     display_night: bool,
     glyph: Option<Glyph>,
@@ -918,11 +1191,12 @@ impl GlobeConfig {
             // custom map with a built-in night side would mean mixing two
             // unrelated palettes and sizes.
             if self.day.is_none() {
-                let (day, night) = template.maps();
-                self.day = Some(ImageSource::Baked(Baked::parse(day)));
+                let maps = template.maps();
+                self.day = Some(ImageSource::Baked(Baked::parse(maps.day)));
                 if self.night.is_none() {
-                    self.night = night.map(|n| ImageSource::Baked(Baked::parse(n)));
+                    self.night = maps.night.map(|n| ImageSource::Baked(Baked::parse(n)));
                 }
+                self.ring = maps.ring.map(Ring::parse);
             }
         }
         let texture = match (self.day.take(), self.night.take()) {
@@ -931,10 +1205,7 @@ impl GlobeConfig {
             (None, Some(night)) => assemble(night.clone(), Some(night), self.palette.take()),
             (None, None) => panic!("texture not provided"),
         };
-        let camera = self
-            .camera_cfg
-            .unwrap_or_else(CameraConfig::default)
-            .build();
+        let camera = self.camera_cfg.unwrap_or_default().build();
         Globe {
             camera,
             radius: self.radius.unwrap_or(1.),
@@ -943,6 +1214,7 @@ impl GlobeConfig {
             display_night: self.display_night,
             frame: 0,
             glyph: self.glyph.unwrap_or(Glyph::Braille),
+            ring: self.ring,
         }
     }
 }
@@ -1049,14 +1321,26 @@ impl GlobeTemplate {
         names
     };
 
+    /// Camera distance this body reads best from, in planet radii. Front ends
+    /// use it when the user did not ask for a specific zoom: a ringed planet
+    /// needs room, because from inside the ring band the near half of the
+    /// rings is behind the camera.
+    pub fn default_zoom(self) -> Float {
+        match self {
+            GlobeTemplate::Saturn => 3.5,
+            _ => 1.7,
+        }
+    }
+
     /// Parses a [`GlobeTemplate::name`].
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|t| t.name() == name)
     }
 
-    /// Baked day map, plus the night map for bodies that have one.
-    fn maps(self) -> (&'static [u8], Option<&'static [u8]>) {
-        match self {
+    /// Baked maps of this body: a day map, a night map for bodies that have
+    /// one, and a ring profile for bodies that have rings.
+    fn maps(self) -> TemplateMaps {
+        let (day, night) = match self {
             GlobeTemplate::Earth => (EARTH_HD, Some(EARTH_NIGHT_HD)),
             GlobeTemplate::Sun => (SUN_HD, None),
             GlobeTemplate::Mercury => (MERCURY_HD, None),
@@ -1067,8 +1351,23 @@ impl GlobeTemplate {
             GlobeTemplate::Saturn => (SATURN_HD, None),
             GlobeTemplate::Uranus => (URANUS_HD, None),
             GlobeTemplate::Neptune => (NEPTUNE_HD, None),
+        };
+        TemplateMaps {
+            day,
+            night,
+            ring: match self {
+                GlobeTemplate::Saturn => Some(SATURN_RING),
+                _ => None,
+            },
         }
     }
+}
+
+/// The baked maps one [`GlobeTemplate`] renders.
+struct TemplateMaps {
+    day: &'static [u8],
+    night: Option<&'static [u8]>,
+    ring: Option<&'static [u8]>,
 }
 
 static EARTH_HD: &[u8] = include_bytes!("../textures/earth_hd.gidx");
@@ -1080,10 +1379,13 @@ static MOON_HD: &[u8] = include_bytes!("../textures/moon_hd.gidx");
 static MARS_HD: &[u8] = include_bytes!("../textures/mars_hd.gidx");
 static JUPITER_HD: &[u8] = include_bytes!("../textures/jupiter_hd.gidx");
 static SATURN_HD: &[u8] = include_bytes!("../textures/saturn_hd.gidx");
+static SATURN_RING: &[u8] = include_bytes!("../textures/saturn_ring.gidx");
 static URANUS_HD: &[u8] = include_bytes!("../textures/uranus_hd.gidx");
 static NEPTUNE_HD: &[u8] = include_bytes!("../textures/neptune_hd.gidx");
 
 /// Camera configuration struct implementing the builder pattern.
+///
+/// [`Default`] is two radii out, looking down the `x` axis.
 pub struct CameraConfig {
     radius: Float,
     alpha: Float,
@@ -1106,20 +1408,21 @@ impl CameraConfig {
         }
     }
 
-    /// Creates a new `CameraConfig` using default values.
-    pub fn default() -> Self {
-        Self {
-            radius: 2.,
-            alpha: 0.,
-            beta: 0.,
-        }
-    }
-
     /// Builds a camera from the collected config information.
     pub fn build(&self) -> Camera {
         let mut camera = Camera::default();
         camera.update(self.radius, self.alpha, self.beta);
         camera
+    }
+}
+
+impl Default for CameraConfig {
+    fn default() -> Self {
+        Self {
+            radius: 2.,
+            alpha: 0.,
+            beta: 0.,
+        }
     }
 }
 

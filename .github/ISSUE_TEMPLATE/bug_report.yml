@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a rendering or CLI problem
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Fill in what you can — the command line and the
+        glyph/body combo matter most for rendering bugs.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw vs. what you expected.
+      placeholder: The southern hemisphere smears when I spin the globe with -G braille.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command line
+      description: Exact invocation, including all flags.
+      placeholder: globe -s -G braille -t saturn -c2
+    validations:
+      required: true
+  - type: dropdown
+    id: glyph
+    attributes:
+      label: Glyph mode (-G)
+      description: Which sub-cell alphabet the bug appears with.
+      options:
+        - braille
+        - half
+        - ascii
+        - all / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: body
+    attributes:
+      label: Body (-t)
+      description: Which template the bug appears with.
+      options:
+        - earth
+        - sun
+        - mercury
+        - venus
+        - moon
+        - mars
+        - jupiter
+        - saturn
+        - uranus
+        - neptune
+        - all / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, terminal, terminal size (columns x rows), rustc version.
+      placeholder: Arch Linux, kitty, 120x36, rustc 1.93.1
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to trigger the bug.
+      placeholder: |
+        1. cargo run -q -p globe-cli -- -s -t mars
+        2. ...
+    validations:
+      required: false

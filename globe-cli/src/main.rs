@@ -30,8 +30,8 @@ struct Settings {
     globe_rotation_speed: f32,
     /// Initial camera rotation speed
     cam_rotation_speed: f32,
-    /// Initial camera zoom
-    cam_zoom: f32,
+    /// Initial camera zoom, `None` for the body's recommended distance
+    cam_zoom: Option<f32>,
     /// Target focus speed
     focus_speed: f32,
     /// Globe night side switch
@@ -40,9 +40,9 @@ struct Settings {
     glyph: Glyph,
     /// Built-in body to display
     template: GlobeTemplate,
-    /// Optional custom day texture path, overriding the template map
+    /// Custom day texture, overriding the template map
     texture: Option<String>,
-    /// Optional custom night texture path
+    /// Custom night texture
     texture_night: Option<String>,
     /// Initial location coordinates
     coords: (f32, f32),
@@ -99,10 +99,9 @@ fn main() {
             Arg::new("cam_zoom")
                 .short('z')
                 .long("cam-zoom")
-                .help("Starting camera zoom")
+                .help("Starting camera zoom (defaults to the body's recommended distance)")
                 .takes_value(true)
-                .value_name("distance")
-                .default_value("1.7"),
+                .value_name("distance"),
         )
         .arg(
             Arg::new("focus_speed")
@@ -145,7 +144,7 @@ fn main() {
                 .help("Built-in body to display")
                 .takes_value(true)
                 .value_name("planet")
-                .possible_values(&GlobeTemplate::NAMES)
+                .possible_values(GlobeTemplate::NAMES)
                 .default_value("earth"),
         )
         .arg(
@@ -206,21 +205,18 @@ fn main() {
             .expect("failed parsing cam rotation speed value"),
         cam_zoom: matches
             .value_of("cam_zoom")
-            .unwrap()
-            .parse()
-            .expect("failed parsing cam zoom value"),
+            .map(|v| v.parse().expect("failed parsing cam zoom value")),
         focus_speed: matches
             .value_of("focus_speed")
             .unwrap()
             .parse()
             .expect("failed parsing focus speed value"),
         night: matches.is_present("night"),
-        glyph: Glyph::from_name(matches.value_of("glyph").unwrap())
-            .expect("unknown glyph mode"),
+        glyph: Glyph::from_name(matches.value_of("glyph").unwrap()).expect("unknown glyph mode"),
         template: GlobeTemplate::from_name(matches.value_of("template").unwrap())
             .expect("unknown template"),
-        texture: matches.value_of("texture").map(str::to_string),
-        texture_night: matches.value_of("texture_night").map(str::to_string),
+        texture: matches.value_of("texture").map(read_map),
+        texture_night: matches.value_of("texture_night").map(read_map),
         coords,
     };
 
@@ -249,7 +245,9 @@ fn start_listing(settings: Settings, coords_input: Vec<&str>) {
     let mut term_size = terminal::size().unwrap();
     let mut canvas = window_canvas(term_size);
 
-    let mut cam_zoom = settings.cam_zoom;
+    let mut cam_zoom = settings
+        .cam_zoom
+        .unwrap_or_else(|| settings.template.default_zoom());
     let mut cam_xy = 0.;
     let mut cam_z = 0.;
 
@@ -287,18 +285,9 @@ fn start_listing(settings: Settings, coords_input: Vec<&str>) {
     loop {
         if poll(Duration::from_millis(1000 / settings.refresh_rate as u64)).unwrap() {
             match read().unwrap() {
-                // pressing any key exists the program
+                // pressing any key steps to the next location, c and d quit
                 Event::Key(key) => match key.code {
-                    KeyCode::Char(char) => match char {
-                        'c' | 'd' => break,
-                        _ => {
-                            current_index += 1;
-                            if current_index >= coord_list.len() {
-                                break;
-                            }
-                            moving_towards_target = Some(coord_list[current_index]);
-                        }
-                    },
+                    KeyCode::Char('c') | KeyCode::Char('d') => break,
                     _ => {
                         current_index += 1;
                         if current_index >= coord_list.len() {
@@ -369,7 +358,9 @@ fn start_screensaver(settings: Settings) {
     // one reused output buffer: changed cells are batched into runs
     let mut out = String::new();
 
-    let cam_zoom = settings.cam_zoom;
+    let cam_zoom = settings
+        .cam_zoom
+        .unwrap_or_else(|| settings.template.default_zoom());
     let mut cam_xy = 0.;
     let mut cam_z = 0.;
 
@@ -473,7 +464,9 @@ fn start_interactive(settings: Settings) {
     let mut term_size = terminal::size().unwrap();
     let mut canvas = window_canvas(term_size);
 
-    let mut cam_zoom = settings.cam_zoom;
+    let mut cam_zoom = settings
+        .cam_zoom
+        .unwrap_or_else(|| settings.template.default_zoom());
     let mut cam_xy = 0.;
     let mut cam_z = 0.;
 
@@ -616,21 +609,22 @@ fn build_globe(settings: &Settings, cam_zoom: f32, cam_xy: f32, cam_z: f32) -> G
         .with_glyph(settings.glyph)
         .with_camera(CameraConfig::new(cam_zoom, cam_xy, cam_z))
         .display_night(settings.night);
-    if let Some(path) = &settings.texture {
-        config = config.with_texture(&read_map(path), None);
+    if let Some(map) = &settings.texture {
+        config = config.with_texture(map, None);
     }
-    if let Some(path) = &settings.texture_night {
-        config = config.with_night_texture(&read_map(path), None);
+    if let Some(map) = &settings.texture_night {
+        config = config.with_night_texture(map, None);
     }
     config.build()
 }
 
 /// Reads an ascii texture map, failing with a message instead of a panic.
+/// Called while parsing arguments, so a bad path never reaches the terminal.
 fn read_map(path: &str) -> String {
     match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(err) => {
-            eprintln!("globe: cannot read texture map {path}: {err}");
+            eprintln!("globe: cannot read texture map {}: {}", path, err);
             std::process::exit(1);
         }
     }
@@ -720,7 +714,7 @@ fn print_canvas(canvas: &Canvas, stdout: &mut Stdout) {
 /// Orients the camera so that it focuses on the given target coordinates.
 pub fn focus_target(coords: (f32, f32), xy_offset: f32, cam_xy: &mut f32, cam_z: &mut f32) {
     let (cx, cy) = coords;
-    *cam_xy = (cx * PI) * -1. - 1.5 - xy_offset;
+    *cam_xy = -(cx * PI) - 1.5 - xy_offset;
     *cam_z = cy * 3. - 1.5;
 }
 
@@ -736,7 +730,7 @@ pub fn move_towards_target(
     cam_zoom: &mut f32,
 ) -> bool {
     let (cx, cy) = coords;
-    let target_xy = (cx * PI - xy_offset) * -1. - 1.5;
+    let target_xy = -(cx * PI - xy_offset) - 1.5;
     let target_z = cy * 3. - 1.5;
 
     let diff_xy = target_xy - *cam_xy;
@@ -748,7 +742,7 @@ pub fn move_towards_target(
 
     let mut xy_move = 0.01 * speed + (diff_xy.abs() / 30. * speed);
     if diff_xy.abs() < 0.07 {
-        xy_move = xy_move / 5.;
+        xy_move /= 5.;
     }
     if diff_xy > 0. {
         *cam_xy += xy_move;
@@ -758,7 +752,7 @@ pub fn move_towards_target(
 
     let mut z_move = 0.005 * speed + (diff_z.abs() / 30. * speed);
     if diff_z.abs() < 0.07 {
-        z_move = z_move / 5.;
+        z_move /= 5.;
     }
     if diff_z > 0. {
         *cam_z += z_move;

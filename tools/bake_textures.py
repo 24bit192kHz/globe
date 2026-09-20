@@ -32,6 +32,7 @@ Usage:
   python3 bake_textures.py --from-text DAY_TXT NIGHT_TXT
 """
 import json
+import math
 import struct
 import sys
 import urllib.request
@@ -122,6 +123,56 @@ def write_gidx(levels_idx, lib_palette, cols, rows, out_path):
         f.write(pal_bytes)
         f.write(blob)
     print(f"wrote {out_path} {cols}x{rows} levels={levels}")
+
+
+def write_ring(profile, inner, outer, tilt_rad, out_path):
+    """Write a RING1 ring profile.
+
+    Layout, little endian: magic `RING1\n`, sample count u32, inner radius
+    f32, outer radius f32, tilt f32 (radians; the ring plane normal is the
+    planet axis, tilted that far from +z about x), then one (brightness,
+    opacity) byte pair per radial sample, inner edge first. Radii are in
+    planet radii, so the renderer scales them by the globe radius.
+    """
+    arr = np.asarray(profile, dtype=np.uint8)
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError(f"profile must be (n, 2), got {arr.shape}")
+    if not 0.0 < inner < outer:
+        raise ValueError(f"radii must satisfy 0 < inner < outer, got {inner}, {outer}")
+    with open(out_path, "wb") as f:
+        f.write(b"RING1\n")
+        f.write(struct.pack("<I", arr.shape[0]))
+        f.write(struct.pack("<fff", inner, outer, tilt_rad))
+        f.write(np.ascontiguousarray(arr, dtype=np.uint8).tobytes())
+    print(f"wrote {out_path} samples={arr.shape[0]} inner={inner} outer={outer} "
+          f"tilt={math.degrees(tilt_rad):.2f}deg alpha_max={arr[:, 1].max() / 255:.2f}")
+
+
+def bake_ring(spec, name, fetch, write_text):
+    """Radial ring profile from a ring strip image (its alpha is the opacity)."""
+    ring_spec = spec.get("ring")
+    if not ring_spec:
+        return None
+    src = ensure_source(ring_spec, fetch)
+    opacity = np.asarray(Image.open(src).convert("RGBA"), dtype=np.float32)[..., 3] / 255.0
+    profile = opacity.mean(axis=0)  # the strip is uniform along its height
+    count = int(ring_spec.get("samples", 512))
+    profile = np.interp(np.linspace(0.0, 1.0, count),
+                        np.linspace(0.0, 1.0, profile.size), profile)
+    albedo = float(ring_spec.get("albedo", 1.0))
+    brightness = np.clip(profile * albedo, 0.0, 1.0)
+    pairs = np.stack([np.rint(brightness * 255.0), np.rint(profile * 255.0)], axis=1)
+    out = TEXDIR / f"{name}_ring.gidx"
+    write_ring(pairs.astype(np.uint8), float(ring_spec["inner"]), float(ring_spec["outer"]),
+               math.radians(float(ring_spec.get("tilt_deg", 0.0))), str(out))
+    if write_text:
+        ramp = " .:-=+*#%@"
+        bars = "".join(ramp[min(9, int(v * 9.99))] for v in profile)
+        txt = out.with_suffix(".txt")
+        txt.write_text(f"{name} ring opacity, inner={ring_spec['inner']} outer={ring_spec['outer']} "
+                       f"tilt={ring_spec.get('tilt_deg', 0.0)}deg\n{bars}\n")
+        print(f"wrote {txt}")
+    return out
 
 
 def text_to_levels(txt_path, lib_palette=LIB_PALETTE):
@@ -246,6 +297,7 @@ def bake_body(name, fetch, write_text, cols=None, rows=None):
     TEXDIR.mkdir(parents=True, exist_ok=True)
     for key in ("day", "night"):
         bake_map(spec, key, name, cols, rows, fetch, write_text)
+    bake_ring(spec, name, fetch, write_text)
 
 
 def main():
@@ -253,7 +305,7 @@ def main():
     if "--list" in args:
         for name in list_bodies():
             spec = json.loads(body_path(name).read_text())
-            night = " +night" if spec.get("night") else ""
+            night = (" +night" if spec.get("night") else "") + (" +ring" if spec.get("ring") else "")
             print(f"{name:10s} {spec.get('note', '')}{night}")
         return
     if "--from-text" in args:
