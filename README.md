@@ -107,9 +107,10 @@ globe -s -t mars
 globe -i -t saturn
 ```
 
-Earth is the only body with a night side, so `-n` only changes earth: it is
-emissive-only bodies that have no night map, which is also why the sun never
-shows a terminator. Saturn's rings are not drawn, the globe is a sphere.
+Earth is the only body with a night side, so `-n` only changes earth. A body
+without a night map has no terminator, which is why the sun renders fully
+lit. Saturn's rings are not drawn: the globe is a sphere.
+
 `--texture` and `--texture-night` load your own ascii map on top of the
 template:
 ```
