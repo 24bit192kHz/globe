@@ -20,7 +20,16 @@ globe -s -c2 -n
 Every clip is a real recording of the binary on a pty, decoded from braille
 dots to pixels: no screenshots, no mockups. All five are 1-bit and take under
 500 KB together — the previous single drag recording was six times that on its
-own.
+own. They are inline previews (GitHub does not autoplay video), and the
+1080p clip below is the same renderer at full resolution.
+
+**1080p video** — [`demo-saturn-1080p.mp4`](.github/demo-saturn-1080p.mp4)
+(1920x1080, 30 fps, 3 s, 7 MB, AV1 in MP4). Every video frame is one rendered
+frame of a 960x270 character grid, which is exactly 1920x1080 braille dots, so
+one terminal dot is one video pixel: no screen capture, and the frame rate of
+the video is independent of how fast the renderer runs. `globe/examples/video.rs`
+is the generator and `docs/internals.md` has the pipeline and the codec
+trade-offs.
 
 **Earth, screensaver, night side, braille** — `globe -s -c2 -n`
 
